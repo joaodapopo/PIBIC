@@ -153,7 +153,16 @@ comando de lote em `SEM_DOCKER.md`.
   em modo streaming. Título/cabeçalho e par de colunas espécie código/descrição
   foram tratados pelo layout observado. 882.589 linhas lidas; DF: 3.258 espécie 87,
   389 espécie 88, em 24 grupos de motivo. Só agregados são gravados na Silver.
-  XLS histórico e conjuntos de concessões ainda requerem importadores próprios.
+  XLS histórico ainda requer importador próprio. O novo comando
+  `inss-concessoes` usa o [dataset oficial de concessões](https://dadosabertos.inss.gov.br/dataset/beneficios-concedidos-plano-de-dados-abertos-jun-2023-a-jun-2025),
+  valida código/descrição de despacho e espécie e competência em todas as
+  linhas. Arquivo agosto/2026: 125.588.346 bytes, 848.996 linhas lidas; DF:
+  1.495 concessões espécie 87 e 667 espécie 88, em 8 agregados, efetivamente
+  gravados em `indicadores_inss_concessoes`. A API retornou HTTP 200 e os mesmos
+  totais. Despacho 4 é rotulado pela fonte `Concessao Decorrente de Acao Judicial`;
+  a descrição é preservada, sem atribuição a um processo ou cálculo de
+  procedência judicial. Nenhum CID, nascimento ou linha individual foi persistido
+  na Silver. Migração aditiva 0007 para PostgreSQL; SQLite cria somente a tabela.
 - **Arquivo TRF1:** acesso variou entre Cloudflare e formulário acessível. O endpoint
   público usado pelo próprio script `js/pages/index.js` foi testado:
   `POST /localiza_processo.php`, campo `ProcInclui` com CNJ sem pontuação. Sem

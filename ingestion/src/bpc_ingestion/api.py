@@ -25,6 +25,7 @@ from .models import (
     DocumentoProcesso,
     DocumentoPublico,
     ExtracaoIa,
+    IndicadorInssConcessao,
     IndicadorInssIndeferimento,
     Movimento,
     Processo,
@@ -248,6 +249,29 @@ def inss_indicators(session: Annotated[Session, Depends(get_session)],
                              "hash_arquivo": row.hash_arquivo, "recurso_url": row.recurso_url})
     return {"total": len(selected), "itens": selected, "schema_disponivel": True,
             "unidade": "indeferimentos administrativos, não processos/pessoas únicas",
+            "versao": "último snapshot coletado por competência e UF, sem somar versões"}
+
+
+@app.get("/admin/api/concessoes-inss")
+def inss_concessions(session: Annotated[Session, Depends(get_session)],
+                     competencia: int | None = None, uf: str = "DF"):
+    if not inspect(session.get_bind()).has_table("indicadores_inss_concessoes"):
+        return {"total": 0, "itens": [], "schema_disponivel": False}
+    query = select(IndicadorInssConcessao).where(IndicadorInssConcessao.uf == uf.upper())
+    if competencia:
+        query = query.where(IndicadorInssConcessao.competencia == competencia)
+    rows = session.scalars(query.order_by(IndicadorInssConcessao.coletado_em.desc(), IndicadorInssConcessao.id.desc()))
+    latest, selected = {}, []
+    for row in rows:
+        key = (row.competencia, row.uf)
+        latest.setdefault(key, row.hash_arquivo)
+        if row.hash_arquivo == latest[key]:
+            selected.append({"competencia": row.competencia, "uf": row.uf, "especie": row.especie,
+                             "codigo_despacho": row.codigo_despacho, "despacho": row.despacho,
+                             "quantidade": row.quantidade, "hash_arquivo": row.hash_arquivo,
+                             "recurso_url": row.recurso_url})
+    return {"total": len(selected), "itens": selected, "schema_disponivel": True,
+            "unidade": "concessões administrativas, não processos/pessoas únicas nem taxa de procedência",
             "versao": "último snapshot coletado por competência e UF, sem somar versões"}
 
 

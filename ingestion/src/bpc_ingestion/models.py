@@ -357,3 +357,23 @@ class IndicadorInssIndeferimento(Base):
     hash_arquivo: Mapped[str] = mapped_column(String(64), nullable=False)
     coleta_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("coletas.id"), nullable=False)
     coletado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class IndicadorInssConcessao(Base):
+    __tablename__ = "indicadores_inss_concessoes"
+    __table_args__ = (UniqueConstraint("fonte", "competencia", "uf", "especie", "codigo_despacho",
+                                       "despacho", "hash_arquivo", name="uq_inss_concessao_versao"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    fonte: Mapped[str] = mapped_column(String(30), nullable=False)
+    competencia: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    uf: Mapped[str] = mapped_column(String(2), nullable=False)
+    especie: Mapped[int] = mapped_column(Integer, nullable=False)
+    codigo_despacho: Mapped[int] = mapped_column(Integer, nullable=False)
+    despacho: Mapped[str] = mapped_column(Text, nullable=False)
+    quantidade: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    recurso_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    recurso_url: Mapped[str] = mapped_column(Text, nullable=False)
+    arquivo_bruto: Mapped[str] = mapped_column(Text, nullable=False)
+    hash_arquivo: Mapped[str] = mapped_column(String(64), nullable=False)
+    coleta_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("coletas.id"), nullable=False)
+    coletado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

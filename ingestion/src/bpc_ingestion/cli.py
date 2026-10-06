@@ -20,9 +20,10 @@ from .datajud import (
 )
 from .inss import InssCatalogClient
 from .inss_benefits import InssBenefitsClient, UF_NAMES, aggregate_xlsx, store_aggregates
+from .inss_concessions import DATASET as CONCESSIONS_DATASET, aggregate_concession_xlsx, store_concessions
 from .ipeaia import (IpeaIaClient, PROMPT_VERSION, RejectedIpeaResponse,
                     load_process_input, pending_processes, save_rejected_response)
-from .models import ExtracaoIa, IndicadorInssIndeferimento, Processo
+from .models import ExtracaoIa, IndicadorInssConcessao, IndicadorInssIndeferimento, Processo
 from .persistence import agora_iso
 from .postgres_store import PostgresStore
 from .public_sources import (ArchiveClient, CjfClient, PublicHttp, SourceBlocked, StjClient, bpc_text, ensure_document_tables,
@@ -113,6 +114,12 @@ def construir_parser() -> argparse.ArgumentParser:
     benefits.add_argument("--timeout", type=float, default=180)
     benefits.add_argument("--raw-dir", default="data/raw")
     benefits.add_argument("--arquivo", type=Path, help="XLSX ou XLSX.gz local do mesmo recurso mensal")
+    grants = commands.add_parser("inss-concessoes", help="Agrega concessões BPC por UF, espécie e despacho, sem pessoas")
+    grants.add_argument("--competencia", type=int, required=True)
+    grants.add_argument("--uf", default="DF")
+    grants.add_argument("--timeout", type=float, default=180)
+    grants.add_argument("--raw-dir", default="data/raw")
+    grants.add_argument("--arquivo", type=Path, help="XLSX ou XLSX.gz local do mesmo recurso mensal")
     commands.add_parser("verificar-arquivo-trf1", help="Verifica acesso público sem contornar anti-robô")
     archive = commands.add_parser("arquivo-trf1", help="Consulta disponibilidade por CNJ no arquivo público")
     archive.add_argument("--numero", nargs="+", required=True)
@@ -516,16 +523,19 @@ def collect_inss_benefits(args: argparse.Namespace, settings: Settings) -> int:
         raise ValueError("Informe uma UF brasileira válida e timeout positivo/finito")
     store = PostgresStore(settings.database_url)
     run = None
+    concessions = args.command == "inss-concessoes"
+    source_name = "inss_concessoes" if concessions else "inss_indeferimentos"
     try:
         ensure_document_tables(store.engine)
-        IndicadorInssIndeferimento.__table__.create(store.engine, checkfirst=True)
+        model = IndicadorInssConcessao if concessions else IndicadorInssIndeferimento
+        model.__table__.create(store.engine, checkfirst=True)
         client = InssBenefitsClient(PublicHttp(timeout=args.timeout, max_bytes=128 * 1024 * 1024))
-        package = client.package(client.DATASET)
+        package = client.package(CONCESSIONS_DATASET if concessions else client.DATASET)
         resource = client.monthly_resource(package, args.competencia)
         parameters = {"competencia": args.competencia, "uf": args.uf.upper(), "recurso_id": resource["id"],
                       "recurso_url": resource["url"], "arquivo_local": str(args.arquivo) if args.arquivo else None}
-        run = store.start_collection("inss_indeferimentos", str(args.competencia), parameters)
-        preserve_raw(client.package_raw, Path(args.raw_dir), "inss_indeferimentos", run, "catalogo.json")
+        run = store.start_collection(source_name, str(args.competencia), parameters)
+        preserve_raw(client.package_raw, Path(args.raw_dir), source_name, run, "catalogo.json")
         LOGGER.info("INSS: baixando/lendo recurso mensal %s, UF=%s; nenhuma linha pessoal vai à Silver",
                     args.competencia, args.uf)
         if args.arquivo:
@@ -536,16 +546,18 @@ def collect_inss_benefits(args: argparse.Namespace, settings: Settings) -> int:
                 raise ValueError("Arquivo excede 128 MiB")
         else:
             body = client.http.fetch(resource["url"])
-        raw = preserve_raw(body, Path(args.raw_dir), "inss_indeferimentos", run, "xlsx")
+        raw = preserve_raw(body, Path(args.raw_dir), source_name, run, "xlsx")
         LOGGER.info("INSS: Bronze preservada em %s; agregando a planilha completa...", raw)
-        counts, quality = aggregate_xlsx(body, args.uf, args.competencia)
+        aggregate = aggregate_concession_xlsx if concessions else aggregate_xlsx
+        persist = store_concessions if concessions else store_aggregates
+        counts, quality = aggregate(body, args.uf, args.competencia)
         with store.Session.begin() as session:
-            inserted = store_aggregates(session, counts, resource, args.competencia, body, raw, run)
+            inserted = persist(session, counts, resource, args.competencia, body, raw, run)
             collection = session.get(Coleta, uuid.UUID(run))
             collection.parametros = dict(parameters, qualidade=quality)
         store.finish_collection(run, "concluida", sum(counts.values()), raw_file=str(raw))
-        LOGGER.info("INSS: %d linhas lidas, %d indeferimentos BPC selecionados, %d agregados novos",
-                    quality["linhas_lidas"], quality["linhas_selecionadas"], inserted)
+        LOGGER.info("INSS %s: %d linhas lidas, %d registros BPC selecionados, %d agregados novos",
+                    source_name, quality["linhas_lidas"], quality["linhas_selecionadas"], inserted)
     except Exception as exc:
         if run:
             store.finish_collection(run, "falhou", 0, error=str(exc))
@@ -608,7 +620,7 @@ def executar(argv: Sequence[str] | None = None) -> int:
         finally:
             store.close()
         return 0
-    if args.command == "inss-indeferimentos":
+    if args.command in ("inss-indeferimentos", "inss-concessoes"):
         return collect_inss_benefits(args, settings)
     if args.command == "verificar-arquivo-trf1":
         store = PostgresStore(settings.database_url)

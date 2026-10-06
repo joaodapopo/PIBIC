@@ -6,6 +6,7 @@
 <form id="filter"><select id="source"><option value="">Todas as fontes</option><option value="stj">STJ</option><option value="cjf_trf1">CJF — TRF1/JEF1</option><option value="trf1_arquivo">Arquivo TRF1</option></select><input id="query" placeholder="Texto ou número do processo"><button>Pesquisar</button></form>
 <p id="status" role="status"></p><main id="results"></main><button id="prev">Anterior</button><button id="next">Próxima</button>
 <section><h2>Indeferimentos administrativos do INSS — DF</h2><p>Contexto administrativo, sem ligação automática com processos. Mostra o último snapshot de cada competência.</p><div id="inss"></div></section>
+<section><h2>Concessões administrativas do INSS — DF</h2><p>Benefícios concedidos por espécie e despacho publicado. Não são pessoas únicas nem taxa de procedência judicial. Mostra o último snapshot de cada competência.</p><div id="grants"></div></section>
 <script>
 let offset=0, total=0;
 const el=id=>document.getElementById(id);
@@ -38,4 +39,20 @@ async function load(){
 }
 el('filter').addEventListener('submit',event=>{event.preventDefault();offset=0;load();});el('prev').onclick=()=>{offset=Math.max(0,offset-20);load();};el('next').onclick=()=>{offset+=20;load();};load();
 async function loadInss(){try{const response=await fetch('/admin/api/indeferimentos-inss?uf=DF');if(!response.ok)throw new Error('Falha ao carregar INSS');const data=await response.json();if(!data.itens.length){add(el('inss'),'p','Nenhum agregado INSS coletado.');return;}const table=add(el('inss'),'table','');const heading=add(table,'tr','');for(const title of ['Competência','Espécie','Motivo publicado','Indeferimentos'])add(heading,'th',title);for(const item of data.itens){const row=add(table,'tr','');for(const value of [item.competencia,item.especie===87?'BPC — deficiência':'BPC — idoso',item.motivo,item.quantidade])add(row,'td',String(value));}}catch(error){add(el('inss'),'p',error.message);}}loadInss();
+</script>
+<script>
+async function loadGrants(){
+  try{
+    const response=await fetch('/admin/api/concessoes-inss?uf=DF');
+    if(!response.ok)throw new Error('Falha ao carregar concessões INSS');
+    const data=await response.json();
+    if(!data.itens.length){add(el('grants'),'p','Nenhum agregado de concessão coletado.');return;}
+    const table=add(el('grants'),'table',''), heading=add(table,'tr','');
+    for(const title of ['Competência','Espécie','Código despacho','Descrição publicada','Concessões'])add(heading,'th',title);
+    for(const item of data.itens){
+      const row=add(table,'tr','');
+      for(const value of [item.competencia,item.especie===87?'BPC — deficiência':'BPC — idoso',item.codigo_despacho,item.despacho,item.quantidade])add(row,'td',String(value));
+    }
+  }catch(error){add(el('grants'),'p',error.message);}
+}loadGrants();
 </script></html>

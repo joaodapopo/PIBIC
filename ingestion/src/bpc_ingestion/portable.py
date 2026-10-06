@@ -67,7 +67,7 @@ def copy_database(source, output: Path) -> dict[str, int]:
                 read = read.execution_options(isolation_level="REPEATABLE READ")
             with read.begin(), target.begin() as write:
                 for table in Base.metadata.sorted_tables:
-                    if table.name not in source_tables and table.name in {"documentos_publicos", "documento_processos", "indicadores_inss_indeferimentos"}:
+                    if table.name not in source_tables and table.name in {"documentos_publicos", "documento_processos", "indicadores_inss_indeferimentos", "indicadores_inss_concessoes"}:
                         counts[table.name] = 0
                         continue
                     expected = read.scalar(select(func.count()).select_from(table))

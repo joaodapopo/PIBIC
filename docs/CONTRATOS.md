@@ -1,4 +1,4 @@
-# Contrato de dados BPC Jud — v0.6
+# Contrato de dados BPC Jud — v0.7
 
 Este documento substitui o contrato v0.1 baseado em SQLite/MongoDB.
 
@@ -49,6 +49,7 @@ PostgreSQL normalizado:
 - `indicadores_bpc_municipio` (agregados da CGU; não são processos).
 - `documentos_publicos`, `documento_processos` (corpus complementar e vínculos).
 - `indicadores_inss_indeferimentos` (agregados administrativos, não processos).
+- `indicadores_inss_concessoes` (agregados de concessão por despacho, não processos).
 
 O payload bruto também fica em JSONB, mas os campos usados em filtros e junções
 devem possuir colunas tipadas.
@@ -171,6 +172,30 @@ CAPTCHA/anti-robô será registrado como bloqueio, não contornado e não confun
 com ausência de dados.
 
 ## IA
+
+### `indicadores_inss_concessoes` — v0.7
+
+Concessões administrativas agregadas, não pessoas únicas, processos ou taxa
+de procedência. Fonte mensal CKAN `beneficios-concedidos-plano-de-dados-abertos-jun-2023-a-jun-2025`.
+Campos: `id` bigint PK; `fonte` varchar(30) = `inss_concessoes`;
+`competencia` integer AAAAMM; `uf` varchar(2); `especie` integer (87/88);
+`codigo_despacho` integer; `despacho` text com descrição original ou `Não informado`;
+`quantidade` bigint; `recurso_id` varchar(500); `recurso_url`, `arquivo_bruto` text;
+`hash_arquivo` varchar(64); `coleta_id` UUID FK coletas;
+`coletado_em` timestamp UTC. Chave única: fonte + competência + UF + espécie +
+código despacho + descrição despacho + hash arquivo. Snapshots não se somam.
+Mudanças nos mesmos bytes com contagem divergente rejeitam a importação.
+
+Layout real agosto/2026: título na primeira linha, cabeçalho na segunda,
+colunas consecutivas `Espécie` (código/descrição) e `Despacho` (código/descrição),
+`Competência concessão` e `UF`. O importador exige essas colunas, códigos
+numéricos, competência compatível em todas as linhas e agrega apenas BPC 87/88
+da UF pedida. Só grava após leitura completa. Não persiste CID, nascimento,
+sexo, município, escolaridade ou linhas individuais na Silver. O XLSX original
+fica exclusivamente na Bronze local ignorada pelo Git.
+Não classificar despacho como concessão judicial sem dicionário e validação,
+nem atribuir despacho a processo. A tabela é aditiva, compatível SQLite/PG;
+cópias antigas sem a tabela ganham tabela vazia, sem dados inventados.
 
 ### Execução portátil sem Docker (05/10/2026)
 
@@ -386,6 +411,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Integrar concessões públicas INSS como contexto agregado por competência/UF/espécie/despacho, em tabela separada. | Leitura integral agosto/2026: 848.996 linhas; DF: 1.495 concessões espécie 87 e 667 espécie 88, em 8 grupos. Não são processos, pessoas únicas nem taxa de procedência. Microdados só na Bronze local; sem vínculo CNJ nem envio à IA. Contrato v0.7/migração aditiva 0007. |
 | 06/10/2026 | Extrair preliminarmente texto de DOC legado em Python, sem Office/macros/rede e sem sobrescrever originais. | Dois arquivos reais convertidos: ementa BPC (3.217 caracteres) e decisão de controle (5.614). Leitor/pipeline/hash registrados; revisão humana e integridade textual não comprovadas. TIFF/OCR pendente. Não altera recorte nem envia textos à IA. |
 | 06/10/2026 | Implementar download do arquivo TRF1 após localização positiva e confirmação do CNJ na listagem. | Controle positivo oficial e um BPC de 2006 no Piauí foram localizados; certidão/ementa deste último geraram dois vínculos reais com a base. Ele fica fora DF/RIDE. Texto simples lido; DOC binário/OCR TIFF pendentes, sem envio à IA. Originais preservados localmente. |
 | 06/10/2026 | Acrescentar busca CJF por CNJ da própria amostra, com lote retomável e vazio separado de erro. | Consulta real: 10 TRF1 e 5 JEF1 sem resultados nos limites pedidos; busca de controle com CNJ já conhecido retornou documento. Repetição JEF1 avançou aos próximos pendentes. Não comprova falta de decisões nos autos. Vínculo exige CNJ estruturado; textos seguem locais e não são enviados à IA. |

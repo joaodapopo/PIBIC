@@ -127,6 +127,7 @@ git pull
 .\.venv\Scripts\python.exe -m bpc_ingestion documentos-publicos --fonte cjf --base TRF1 --query LOAS --paginas 2 --limit 50
 .\.venv\Scripts\python.exe -m bpc_ingestion documentos-publicos --fonte cjf --base JEF1 --query LOAS --paginas 2 --limit 50
 .\.venv\Scripts\python.exe -m bpc_ingestion inss-indeferimentos --competencia 202608 --uf DF
+.\.venv\Scripts\python.exe -m bpc_ingestion inss-concessoes --competencia 202608 --uf DF
 .\.venv\Scripts\python.exe -m bpc_ingestion arquivo-trf1 --numero 1053078-37.2022.4.01.3400
 ```
 
@@ -161,13 +162,19 @@ continuam separados da amostra e não entram automaticamente na IpeaIA.
 
 Os comandos criam somente as novas tabelas aditivas; não restauram nem apagam
 processos ou extrações. No PostgreSQL, aplicar a migração Alembic 0006 no fluxo
-normal do projeto (o ambiente Docker local deve estar ligado). No SQLite, não
+normal do projeto, incluindo 0007 para concessões (o ambiente Docker local deve estar ligado). No SQLite, não
 executar migrações PostgreSQL.
 
 Abra `http://localhost:8000/admin/documentos` (reinicie o servidor após atualizar).
 O corpus complementar NÃO é a população DF/RIDE: documentos sem CNJ explícito
 coincidente ficam separados. A IpeaIA de metadados ainda não recebe esses textos.
 Os agregados INSS não são processos e não podem fornecer um motivo individual.
+
+As concessões aparecem em seção separada no mesmo painel. O XLSX agosto/2026
+tem cerca de 126 MB; a leitura inteira pode levar alguns minutos. Os campos
+de despacho são códigos/descrições originais, sem classificação automática de
+concessão judicial e sem ligação com processos. Não divida concessões por
+indeferimentos para chamar o resultado de taxa de procedência.
 
 O INSS lê a planilha inteira antes de gravar os agregados (um arquivo mensal
 grande pode levar minutos). A Bronze fica em `data/raw/inss_indeferimentos/`.

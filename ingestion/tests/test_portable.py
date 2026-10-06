@@ -15,7 +15,7 @@ from bpc_ingestion.config import Settings
 from bpc_ingestion.database import make_engine
 from bpc_ingestion.ipeaia import RejectedIpeaResponse, pending_processes, save_rejected_response
 from bpc_ingestion.models import (Assunto, Base, DocumentoProcesso, DocumentoPublico, ExtracaoIa,
-    IndicadorInssIndeferimento, Processo, ReferenciaTpu, RegistroAssunto, RegistroDatajud)
+    IndicadorInssConcessao, IndicadorInssIndeferimento, Processo, ReferenciaTpu, RegistroAssunto, RegistroDatajud)
 from bpc_ingestion.portable import export_package, initialize
 
 
@@ -24,11 +24,11 @@ class PortableDatabaseTest(unittest.TestCase):
         source = make_engine("sqlite://")
         Base.metadata.create_all(source)
         try:
-            for model in (DocumentoProcesso, DocumentoPublico, IndicadorInssIndeferimento):
+            for model in (DocumentoProcesso, DocumentoPublico, IndicadorInssIndeferimento, IndicadorInssConcessao):
                 model.__table__.drop(source)
             with tempfile.TemporaryDirectory() as work:
                 counts = export_package(source, Path(work) / "old-copy.gz")
-                for name in ("documentos_publicos", "documento_processos", "indicadores_inss_indeferimentos"):
+                for name in ("documentos_publicos", "documento_processos", "indicadores_inss_indeferimentos", "indicadores_inss_concessoes"):
                     self.assertEqual(counts[name], 0)
         finally:
             source.dispose()
