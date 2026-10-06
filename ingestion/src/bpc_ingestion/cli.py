@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .bronze import BronzeWriter
+from .archive_text import converted_document, pending_archive_text
 from .checkpoint import CheckpointStore
 from .comunica import ComunicaPjeClient
 from .config import (
@@ -118,6 +119,10 @@ def construir_parser() -> argparse.ArgumentParser:
     archive.add_argument("--baixar", action="store_true", help="Baixa os DOC/TIFF publicados, sem conversão automática")
     archive.add_argument("--limite-documentos", type=int, default=10)
     archive.add_argument("--timeout", type=float, default=60)
+    conversion = commands.add_parser("converter-arquivo-trf1", help="Extrai preliminarmente texto DOC já baixado, sem rede")
+    conversion.add_argument("--limit", type=int, default=10)
+    conversion.add_argument("--executar", action="store_true")
+    conversion.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
     return parser
 
 
@@ -573,6 +578,36 @@ def executar(argv: Sequence[str] | None = None) -> int:
         return collect_public_documents(args, settings)
     if args.command == "cjf-amostra":
         return collect_cjf_sample(args, settings)
+    if args.command == "converter-arquivo-trf1":
+        if not 1 <= args.limit <= 50:
+            raise ValueError("Use limit 1..50")
+        store = PostgresStore(settings.database_url)
+        run, done = None, 0
+        try:
+            ensure_document_tables(store.engine)
+            with store.Session() as session:
+                items = pending_archive_text(session, args.limit)
+            LOGGER.info("DOC: %d arquivos pendentes; executar=%s; conversão local sem rede", len(items), args.executar)
+            if not args.executar:
+                for item in items:
+                    LOGGER.info("Prévia: documento %s, CNJ %s", item.id, item.numero_origem)
+                return 0
+            run = store.start_collection("trf1_arquivo_conversao", "doc_v1", {"limit": args.limit})
+            for item in items:
+                document = converted_document(item, args.raw_dir)
+                with store.Session.begin() as session:
+                    created = store_document(session, document, run, Path(item.arquivo_bruto))
+                done += 1
+                LOGGER.info("DOC %s: %d caracteres, versão nova=%s, revisão humana pendente", item.id,
+                            len(document["texto"]), created)
+            store.finish_collection(run, "concluida", done)
+        except Exception as exc:
+            if run:
+                store.finish_collection(run, "falhou", done, error=str(exc))
+            raise RuntimeError(f"Conversão DOC: {exc}; versões anteriores preservadas") from exc
+        finally:
+            store.close()
+        return 0
     if args.command == "inss-indeferimentos":
         return collect_inss_benefits(args, settings)
     if args.command == "verificar-arquivo-trf1":

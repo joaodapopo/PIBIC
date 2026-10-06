@@ -188,10 +188,26 @@ Para baixar arquivos publicados quando o processo for localizado:
 Esse número é um controle BPC do Piauí já presente na base, não do recorte DF/RIDE.
 Substitua por um CNJ desejado. DOC/TIFF ficam na Bronze local; são registrados
 em `documentos_publicos` e vinculados pelo CNJ confirmado pela listagem.
-DOC binário/TIFF não ganham texto fictício: conversão/OCR continua pendente.
+DOC binário/TIFF não ganham texto fictício: para DOC, a conversão é separada;
+OCR de TIFF continua pendente.
 Certidões observadas com extensão DOC mas conteúdo de texto simples são lidas
 estritamente em UTF-8/Windows-1252. O painel mostra o estado da extração.
 Não execute os arquivos no Word nem publique os textos brutos no Git.
+
+Para extrair texto dos DOCs já baixados, sem rede nem Word:
+
+```powershell
+.\.venv\Scripts\python.exe -m bpc_ingestion converter-arquivo-trf1 --limit 10
+.\.venv\Scripts\python.exe -m bpc_ingestion converter-arquivo-trf1 --limit 10 --executar
+```
+
+O primeiro comando é prévia. O segundo cria uma nova versão com texto
+preliminar, preservando o original e conferindo seu hash. Repetir não converte
+o mesmo arquivo/pipeline outra vez. Funciona em Python 3.12 sem Docker/Office;
+o leitor `legacy-doc` é instalado com `pip install --upgrade ./ingestion`.
+Erros interrompem o lote sem apagar versões anteriores. Extração não garante
+inteiro teor, fidelidade de formatação ou validade da decisão. Não envia texto
+à IpeaIA automaticamente. TIFF não é processado por esse comando.
 
 `existeProcesso:false` não significa inexistência no DataJud. Anti-robô resulta
 em `bloqueada`, nunca é contornado.

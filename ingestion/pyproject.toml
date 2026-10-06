@@ -9,6 +9,7 @@ description = "Pipeline reprodutivel de processos BPC via DataJud e Comunica PJe
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.13,<5",
+    "legacy-doc==0.2.1",
     "openpyxl>=3.1,<4",
     "alembic>=1.16,<2",
     "fastapi>=0.115,<1",

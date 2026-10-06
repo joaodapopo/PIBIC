@@ -165,7 +165,12 @@ comando de lote em `SEM_DOCKER.md`.
   Um BPC da própria base, 0003970-58.2006.4.01.4001 (Piauí, fora DF/RIDE),
   também foi localizado: certidão em texto simples e ementa DOC binária foram
   baixadas e vinculadas. São os primeiros dois vínculos reais dessa fonte.
-  Conversão DOC binário/OCR TIFF permanece pendente; certidão com cabeçalho
+  A conversão preliminar de DOC binário agora usa `legacy-doc` 0.2.1 em Python,
+  sem Word/macros/rede; não garante formatação ou conteúdo integral. Recuperou
+  3.217 caracteres da ementa BPC e 5.614 da decisão de controle, criando outras
+  versões, sem sobrescrever originais nem transmitir dados à IA. Hash do
+  original, parser, versão e hash do texto ficam registrados. TIFF/OCR permanece
+  pendente; certidão com cabeçalho
   conhecido e extensão DOC, mas bytes de texto simples, foi decodificada sem OCR.
   A API/painel distingue `extracao_texto=pendente` de `texto_simples`.
   Não houve bypass,

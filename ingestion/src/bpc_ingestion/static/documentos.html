@@ -26,6 +26,7 @@ async function load(){
       add(card,'small',`${item.fonte} · publicado em ${item.data_publicacao||'data não informada'} · CNJ explícito: ${item.numeros_cnj.join(', ')||'não informado; sem vínculo automático'}`);
       if(item.extracao_texto==='pendente')add(card,'p','Arquivo original baixado. Texto pendente de conversão DOC ou OCR TIFF; ainda não analisável pela IA.');
       if(item.extracao_texto==='texto_simples')add(card,'p','Texto simples publicado pela fonte, sem OCR. Ainda depende de revisão humana.');
+      if(item.extracao_texto==='doc_legacy_preliminar')add(card,'p','Texto extraído localmente de DOC antigo. Conversão preliminar, sem garantia de integridade; revisão humana necessária.');
       for(const [label,text] of [['Ementa',item.ementa],['Decisão publicada',item.decisao],['Texto publicado',item.texto]]){
         if(text){const details=add(card,'details','');add(details,'summary',label);add(details,'pre',text);}
       }
