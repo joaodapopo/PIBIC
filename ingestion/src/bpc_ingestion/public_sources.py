@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
 import re
 import time
 import uuid
+import zipfile
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timezone
 from http.cookiejar import CookieJar
@@ -135,12 +137,46 @@ class StjClient:
                      if str(r.get("format", "")).upper() == "JSON" and r.get("url")]
         return sorted(resources, key=lambda r: r["url"].rsplit("/", 1)[-1], reverse=True)[:limit]
 
+    @staticmethod
+    def historical_zip(package: dict[str, Any]) -> list[dict[str, Any]]:
+        return sorted((r for r in package.get("resources", [])
+                       if str(r.get("format", "")).upper() == "ZIP" and r.get("url")),
+                      key=lambda r: r["url"])
+
+    @staticmethod
+    def iter_records(body: bytes, archive: bool = False, *, max_member_bytes: int = 128 * 1024 * 1024,
+                     max_expanded_bytes: int = 1024 * 1024 * 1024):
+        """Read JSON members in memory, never extract archive paths to disk."""
+        def rows(data):
+            result = json.loads(data.decode("utf-8-sig"))
+            if not isinstance(result, list) or not all(isinstance(row, dict) for row in result):
+                raise ValueError("Arquivo STJ não é lista de espelhos")
+            yield from result
+
+        if not archive:
+            yield from rows(body)
+            return
+        with zipfile.ZipFile(io.BytesIO(body)) as bundle:
+            members = bundle.infolist()
+            if len(members) > 10000 or sum(i.file_size for i in members) > max_expanded_bytes:
+                raise ValueError("Histórico STJ excede limite expandido de segurança")
+            if any(i.flag_bits & 1 for i in members):
+                raise ValueError("Histórico STJ criptografado não é suportado")
+            selected = [i for i in members if not i.is_dir() and i.filename.lower().endswith(".json")]
+            if not selected:
+                raise ValueError("Histórico STJ sem membros JSON")
+            if any(i.file_size > max_member_bytes for i in selected):
+                raise ValueError("Membro JSON STJ excede limite de segurança")
+            for member in selected:
+                with bundle.open(member) as source:
+                    data = source.read(max_member_bytes + 1)
+                if len(data) > max_member_bytes:
+                    raise ValueError("Membro JSON STJ excede limite de segurança")
+                yield from rows(data)
+
     def records(self, resource: dict[str, Any]) -> tuple[bytes, list[dict[str, Any]]]:
         body = self.http.fetch(resource["url"])
-        result = json.loads(body.decode("utf-8-sig"))
-        if not isinstance(result, list) or not all(isinstance(row, dict) for row in result):
-            raise ValueError("Arquivo STJ não é lista de espelhos")
-        return body, result
+        return body, list(self.iter_records(body))
 
 
 class CjfClient:

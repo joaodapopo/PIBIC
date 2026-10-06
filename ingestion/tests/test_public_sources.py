@@ -1,8 +1,10 @@
 import gzip
+import io
 import json
 import tempfile
 import unittest
 import uuid
+import zipfile
 from unittest.mock import Mock
 from datetime import date
 from pathlib import Path
@@ -68,6 +70,30 @@ class PublicSourcesTest(unittest.TestCase):
                                  {"format": "ZIP", "url": "https://example.test/history.zip"},
                                  {"format": "JSON", "url": "https://example.test/20260831.json"}]}
         self.assertTrue(StjClient.recent_json(package, 1)[0]["url"].endswith("20260831.json"))
+        self.assertEqual(len(StjClient.historical_zip(package)), 1)
+
+    def test_historical_zip_reads_members_without_extracting_paths(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as bundle:
+            bundle.writestr("../../outside.json", '[{"id":1,"ementa":"LOAS"}]')
+            bundle.writestr("20220508.json", '[{"id":2,"ementa":"BPC"}]')
+            bundle.writestr("readme.txt", "Not a JSON member")
+        body = buffer.getvalue()
+        self.assertEqual([r["id"] for r in StjClient.iter_records(body, True)], [1, 2])
+        for options in ({"max_member_bytes": 5}, {"max_expanded_bytes": 10}):
+            with self.assertRaises(ValueError):
+                list(StjClient.iter_records(body, True, **options))
+        self.assertEqual(list(StjClient.iter_records(b'[{"id":3}]')), [{"id": 3}])
+        with self.assertRaises(ValueError):
+            list(StjClient.iter_records(b'{"id":3}'))
+
+    def test_historical_zip_rejects_missing_or_invalid_json(self):
+        for name, data in (("readme.txt", "Instructions"), ("broken.json", '{"id":1}')):
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as bundle:
+                bundle.writestr(name, data)
+            with self.assertRaises(ValueError):
+                list(StjClient.iter_records(buffer.getvalue(), True))
 
     def test_cjf_ajax_pagination_keeps_state_and_original_bytes(self):
         home = b'''<form id="formulario" action="/trf1/index.xhtml"><input name="javax.faces.ViewState" value="initial">

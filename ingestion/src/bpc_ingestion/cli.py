@@ -92,6 +92,7 @@ def construir_parser() -> argparse.ArgumentParser:
     sources.add_argument("--fonte", required=True, choices=("stj", "cjf"))
     sources.add_argument("--limit", type=int, default=20)
     sources.add_argument("--recursos", type=int, default=2, help="Arquivos JSON recentes por conjunto STJ")
+    sources.add_argument("--historico", action="store_true", help="Inclui primeiro os ZIP históricos STJ (download maior)")
     sources.add_argument("--paginas", type=int, default=1, help="Páginas CJF (30 documentos por página)")
     sources.add_argument("--conjuntos", nargs="+", default=["espelhos-de-acordaos-primeira-turma", "espelhos-de-acordaos-segunda-turma"])
     sources.add_argument("--query", default='"benefício assistencial"')
@@ -409,7 +410,7 @@ def collect_public_documents(args: argparse.Namespace, settings: Settings) -> in
     try:
         ensure_document_tables(store.engine)
         run = store.start_collection(source, args.base if args.fonte == "cjf" else "bpc", vars(args))
-        http = PublicHttp(timeout=args.timeout)
+        http = PublicHttp(timeout=args.timeout, max_bytes=128 * 1024 * 1024)
         batches = []
         if args.fonte == "stj":
             client = StjClient(http)
@@ -417,6 +418,8 @@ def collect_public_documents(args: argparse.Namespace, settings: Settings) -> in
                 package = client.package(name)
                 # Catálogo também é evidência, não substituir por lista inventada.
                 preserve_raw(client.package_raw, Path(args.raw_dir), source, run, "catalogo.json")
+                if args.historico:
+                    batches.extend(client.historical_zip(package))
                 for resource in client.recent_json(package, args.recursos):
                     batches.append(resource)
         else:
@@ -425,15 +428,18 @@ def collect_public_documents(args: argparse.Namespace, settings: Settings) -> in
             if observed >= args.limit:
                 break
             if args.fonte == "stj":
-                body, items = client.records(resource)
-                raw = preserve_raw(body, Path(args.raw_dir), source, run, "json")
-                documents = [stj_document(item, resource["url"]) for item in items if bpc_text(item)]
+                archive = str(resource.get("format", "")).upper() == "ZIP"
+                body = client.http.fetch(resource["url"])
+                raw = preserve_raw(body, Path(args.raw_dir), source, run, "zip" if archive else "json")
+                documents = (stj_document(item, resource["url"])
+                             for item in client.iter_records(body, archive) if bpc_text(item))
             else:
                 original, body = resource
                 raw = preserve_raw(original, Path(args.raw_dir), source, run, "html" if original == body else "xml")
                 documents = CjfClient.documents(body, args.base)
             with store.Session.begin() as session:
-                for document in documents[:args.limit-observed]:
+                from itertools import islice
+                for document in islice(documents, args.limit-observed):
                     inserted += int(store_document(session, document, run, raw))
                     observed += 1
             LOGGER.info("%s: %d documentos observados, %d versões novas", source, observed, inserted)

@@ -140,7 +140,15 @@ comando de lote em `SEM_DOCKER.md`.
   por termos explícitos BPC/LOAS/benefício assistencial; ID da origem e conteúdo
   são versionados. JSON agosto/2026 da Segunda Turma retornou 1 candidato, gravado;
   repetir gravou zero versões novas. O número curto `3126923` não foi convertido
-  nem unido a CNJ. Histórico ZIP ainda não é baixado pelo coletor atual.
+  nem unido a CNJ. A opção `--historico` agora inclui ZIP oficial antes dos
+  recursos recentes, preservando seus bytes e lendo membros JSON sem extração
+  no disco. O ZIP histórico real da Segunda Turma tem 95.529.644 bytes e cinco
+  JSONs (413.639.349 bytes expandidos), até maio/2022. Limites: 128 MiB de
+  download/por membro e 1 GiB expandido total. Limitar a coleta não demonstra
+  cobertura completa, e repetir o mesmo limite não avança um checkpoint.
+  A execução real com `--historico --limit 20` terminou como `concluida` e
+  gravou 20 versões novas. Corpus local: 21 STJ + 10 CJF; a amostra permanece
+  com 2.584 processos e zero vínculos documentais.
 - **INSS:** recurso oficial de agosto/2026 (XLSX, 63.610.786 bytes) lido integralmente
   em modo streaming. Título/cabeçalho e par de colunas espécie código/descrição
   foram tratados pelo layout observado. 882.589 linhas lidas; DF: 3.258 espécie 87,

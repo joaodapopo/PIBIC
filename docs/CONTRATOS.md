@@ -120,6 +120,14 @@ alteração gera nova versão, sem reescrever o documento antigo. Os vínculos e
 + `processo_id` (FK processos.id), com `criterio` varchar(40) igual a
 `cnj_explicito`. O vínculo indica identidade, não valida concessão inicial.
 
+O coletor STJ pode incluir o histórico ZIP por opção explícita `--historico`.
+Preserva o ZIP original antes de interpretar seus membros JSON, sem extrair
+arquivos no sistema de arquivos. Aceita apenas listas de objetos, como nos
+recursos JSON mensais; nomes de membros não são usados como caminhos locais.
+Impõe limites de tamanho comprimido, expandido e por membro, e rejeita ZIP
+criptografado ou sem JSON. O arquivo e a URL oficiais continuam sendo a origem
+de todos os documentos, com a mesma chave de versão; nenhum schema muda.
+
 Bronze de arquivos conserva bytes originais em `data/raw/<fonte>/<execucao>/`,
 incluindo JSON do STJ e HTML do CJF. Não converter ementa ou dispositivo do
 espelho em "sentença completa". Dados pessoais eventualmente existentes nos
@@ -318,6 +326,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Incluir histórico ZIP oficial STJ mediante `--historico`, com Bronze antes do parsing e limites de expansão. | Coleta real acrescentou 20 documentos históricos da Segunda Turma; corpus local agora tem 31 documentos (21 STJ, 10 CJF), zero vínculos. Os 2.584 processos originais não foram alterados. Histórico completo e textos do recorte continuam não comprovados; sem envio automático à IA. |
 | 06/10/2026 | Integrar corpus CJF/TRF1/JEF1 e STJ, e agregados de indeferimentos INSS; testar disponibilidade no arquivo TRF1 sem bypass. | 11 documentos e 24 agregados reais na cópia SQLite local; zero vínculos com a amostra. Novas tabelas aditivas, origem/versões preservadas. Arquivo TRF1 sem documentos localizados nos CNJs testados; download DOC/TIFF segue pendente. Dados novos não acompanham o Git nem entram automaticamente na IpeaIA. |
 | 06/10/2026 | Prompt v1.2: resumo natural no JSON de extração e hierarquia TPU na entrada; pesquisar fontes públicas adicionais sem misturar populações. | `resumo_caso` até 1500 caracteres, sem novas tabelas; resultados anteriores preservados. CJF/TRF1 e STJ são fontes candidatas de textos, mas nenhuma coleta de documentos foi integrada. Motivo e desfecho continuam não determináveis só por metadados. |
 | 06/10/2026 | Versionar prompt de triagem em v1.1, explicitar formato e permitir evidências de `tribunal`/`grau`; desmembrar campos compostos válidos separados por `/`. | Resolve incompatibilidade `tribunal / grau` sem inventar vínculos nem descartar evidências. Metadados já enviados; enum de `campo` ampliado neste contrato. Resultados v1.0 preservados e passíveis de nova triagem v1.1. |

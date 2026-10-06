@@ -130,6 +130,19 @@ git pull
 .\.venv\Scripts\python.exe -m bpc_ingestion arquivo-trf1 --numero 1053078-37.2022.4.01.3400
 ```
 
+Para incluir os acórdãos históricos do STJ, opcionalmente:
+
+```powershell
+.\.venv\Scripts\python.exe -m bpc_ingestion documentos-publicos --fonte stj --conjuntos espelhos-de-acordaos-segunda-turma --historico --recursos 2 --limit 100 --timeout 180
+```
+
+O histórico vem primeiro. O ZIP da Segunda Turma tem cerca de 95 MB de download
+e 414 MB expandidos; o leitor não extrai arquivos no disco. `--limit` limita
+documentos temáticos observados, não significa que o histórico inteiro foi
+importado. Repetir o mesmo comando deduplica versões, mas não avança um
+checkpoint histórico: aumente o limite para ampliar essa coleta. Os documentos
+continuam separados da amostra e não entram automaticamente na IpeaIA.
+
 Os comandos criam somente as novas tabelas aditivas; não restauram nem apagam
 processos ou extrações. No PostgreSQL, aplicar a migração Alembic 0006 no fluxo
 normal do projeto (o ambiente Docker local deve estar ligado). No SQLite, não
@@ -146,7 +159,7 @@ Se precisar repetir a agregação de um arquivo já baixado, use `--arquivo`
 com o caminho XLSX.gz impresso no log e a mesma competência; todos os períodos
 das linhas são conferidos. Não versionar essa planilha: contém microdados.
 
-Limites: STJ até 24 recursos JSON por conjunto, sem ZIP histórico por enquanto;
+Limites: STJ até 24 recursos JSON recentes por conjunto, com ZIP histórico opcional;
 CJF até 20 páginas e 500 documentos por execução, respeitando intervalo entre
 requisições. Para mudar a cobertura, selecione termos/períodos sem supor que isso
 representa todos os processos. `arquivo-trf1` só consulta disponibilidade;
