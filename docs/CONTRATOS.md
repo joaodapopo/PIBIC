@@ -289,6 +289,22 @@ estável; mudança de formulário interrompe a coleta em vez de produzir falso v
 Não afirmar completude de cobertura. No STJ, os números curtos de recurso e
 registro não são CNJ; não criar vínculo automático nem converter número curto.
 
+`cjf-amostra` pesquisa CNJs da base já existente, sem ampliar a população.
+Seleção automática: registros públicos (sigilo 0 ou ausente), TRF1/G1/JE,
+código municipal DataJud do órgão `743` e assuntos 6114/11946/11947. Isso é
+recorte do órgão, não residência nem prova de concessão inicial. A pesquisa
+livre aceita CNJ sem pontuação; o portal rejeita hífen no texto livre.
+Cada tentativa usa `coletas.fonte=cjf_amostra`, partição
+`<CNJ>/<TRF1 ou JEF1>/p<limite de páginas>/v1`, parâmetros com consulta e versão
+`cnj_digitos_v1`. Sucessos e vazios da mesma configuração são pulados no
+próximo lote; `--retentar` permite nova consulta. Erros/bloqueios continuam
+pendentes, interrompem o lote e não são tratados como vazio. O vazio significa
+somente ausência de resultado nessa fonte/configuração, não inexistência do
+processo. O limite de páginas não comprova cobertura completa.
+Documentos são guardados no corpus existente, mas somente CNJ estruturado
+coincidente permite vínculo. Uma menção ao número no texto não cria vínculo.
+Nenhuma nova tabela ou envio automático à IA é introduzido.
+
 O parser aceita JSON puro ou um único bloco Markdown JSON, sem texto externo.
 Caminhos de evidência como `classe.nome`, `assuntos[0].nome` e
 `movimentacoes[sequencia=12].nome` são aceitos somente quando existem no registro
@@ -326,6 +342,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Acrescentar busca CJF por CNJ da própria amostra, com lote retomável e vazio separado de erro. | Consulta real: 10 TRF1 e 5 JEF1 sem resultados nos limites pedidos; busca de controle com CNJ já conhecido retornou documento. Repetição JEF1 avançou aos próximos pendentes. Não comprova falta de decisões nos autos. Vínculo exige CNJ estruturado; textos seguem locais e não são enviados à IA. |
 | 06/10/2026 | Incluir histórico ZIP oficial STJ mediante `--historico`, com Bronze antes do parsing e limites de expansão. | Coleta real acrescentou 20 documentos históricos da Segunda Turma; corpus local agora tem 31 documentos (21 STJ, 10 CJF), zero vínculos. Os 2.584 processos originais não foram alterados. Histórico completo e textos do recorte continuam não comprovados; sem envio automático à IA. |
 | 06/10/2026 | Integrar corpus CJF/TRF1/JEF1 e STJ, e agregados de indeferimentos INSS; testar disponibilidade no arquivo TRF1 sem bypass. | 11 documentos e 24 agregados reais na cópia SQLite local; zero vínculos com a amostra. Novas tabelas aditivas, origem/versões preservadas. Arquivo TRF1 sem documentos localizados nos CNJs testados; download DOC/TIFF segue pendente. Dados novos não acompanham o Git nem entram automaticamente na IpeaIA. |
 | 06/10/2026 | Prompt v1.2: resumo natural no JSON de extração e hierarquia TPU na entrada; pesquisar fontes públicas adicionais sem misturar populações. | `resumo_caso` até 1500 caracteres, sem novas tabelas; resultados anteriores preservados. CJF/TRF1 e STJ são fontes candidatas de textos, mas nenhuma coleta de documentos foi integrada. Motivo e desfecho continuam não determináveis só por metadados. |

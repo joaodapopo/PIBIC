@@ -5,8 +5,9 @@ import tempfile
 import unittest
 import uuid
 import zipfile
-from unittest.mock import Mock
-from datetime import date
+from unittest.mock import Mock, patch
+from types import SimpleNamespace
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -17,10 +18,14 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
 from bpc_ingestion import api
+from bpc_ingestion.cli import collect_cjf_sample
+from bpc_ingestion.config import Settings
+from bpc_ingestion.postgres_store import PostgresStore
 from bpc_ingestion.database import make_engine
-from bpc_ingestion.models import Base, Coleta, DocumentoProcesso, DocumentoPublico, Processo
+from bpc_ingestion.models import (Assunto, Base, Coleta, DocumentoProcesso, DocumentoPublico, Processo,
+                                  RegistroAssunto, RegistroDatajud)
 from bpc_ingestion.public_sources import (ArchiveClient, CjfClient, SourceBlocked, StjClient, bpc_text,
-    check_blocked, cnj_number, preserve_raw, public_date, stj_document, store_document)
+    check_blocked, cjf_partition, cnj_number, pending_cjf_sample, preserve_raw, public_date, stj_document, store_document)
 
 
 class PublicSourcesTest(unittest.TestCase):
@@ -129,6 +134,83 @@ class PublicSourcesTest(unittest.TestCase):
         self.assertIn("UUID", ddl)
         self.assertIn("FOREIGN KEY(coleta_id) REFERENCES coletas", ddl)
         self.assertIn("uq_documento_publico_versao", ddl)
+
+    def test_sample_selection_filters_and_advances_only_successful_queries(self):
+        engine = make_engine("sqlite://")
+        Base.metadata.create_all(engine)
+        numbers = [f"100000{i}-00.2022.4.01.3400" for i in range(1, 8)]
+        try:
+            with Session(engine) as session:
+                session.add_all([Assunto(codigo=11947), Assunto(codigo=999)])
+                for index, number in enumerate(numbers):
+                    process = Processo(numero_processo=number)
+                    session.add(process)
+                    session.flush()
+                    record = RegistroDatajud(processo_id=process.id, datajud_index="test", datajud_id=number,
+                        tribunal="TRF2" if index == 4 else "TRF1", grau="G2" if index == 5 else "G1",
+                        nivel_sigilo=1 if index == 3 else 0,
+                        payload={"orgaoJulgador": {"codigoMunicipioIBGE": "999" if index == 6 else "743"}},
+                        coletado_em=datetime.now(timezone.utc))
+                    session.add(record)
+                    session.flush()
+                    session.add(RegistroAssunto(registro_id=record.id, assunto_codigo=11947))
+                session.add(Coleta(id=uuid.uuid4(), fonte="cjf_amostra", status="sem_resultado",
+                                  particao=cjf_partition(numbers[0], "JEF1", 2)))
+                session.add(Coleta(id=uuid.uuid4(), fonte="cjf_amostra", status="falhou",
+                                  particao=cjf_partition(numbers[1], "JEF1", 2)))
+                session.commit()
+                self.assertEqual(pending_cjf_sample(session, "JEF1", 2, 10), numbers[1:3])
+                self.assertEqual(pending_cjf_sample(session, "JEF1", 2, 1), numbers[1:2])
+                self.assertEqual(pending_cjf_sample(session, "JEF1", 2, 10, True), numbers[:3])
+                self.assertEqual(pending_cjf_sample(session, "TRF1", 2, 10), numbers[:3])
+                self.assertEqual(pending_cjf_sample(session, "JEF1", 3, 10), numbers[:3])
+                session.get(RegistroAssunto, (3, 11947)).assunto_codigo = 999
+                session.commit()
+                self.assertEqual(pending_cjf_sample(session, "JEF1", 2, 10), numbers[1:2])
+        finally:
+            engine.dispose()
+
+    def test_sample_command_persists_exact_link_and_skips_completed_query(self):
+        with tempfile.TemporaryDirectory() as work:
+            url = "sqlite:///" + str(Path(work) / "base.sqlite")
+            store = PostgresStore(url)
+            Base.metadata.create_all(store.engine)
+            number = "1053078-37.2022.4.01.3400"
+            with store.Session.begin() as session:
+                process = Processo(numero_processo=number)
+                session.add_all([process, Assunto(codigo=11947)])
+                session.flush()
+                record = RegistroDatajud(processo_id=process.id, datajud_index="test", datajud_id="test",
+                    tribunal="TRF1", grau="G1", nivel_sigilo=0,
+                    payload={"orgaoJulgador": {"codigoMunicipioIBGE": "743"}},
+                    coletado_em=datetime.now(timezone.utc))
+                session.add(record)
+                session.flush()
+                session.add(RegistroAssunto(registro_id=record.id, assunto_codigo=11947))
+            store.close()
+            html = f'''<div id="item_resultado-12"><div class="ui-outputpanel">
+                <tr><td>Numero</td></tr><tr><td>{number}</td></tr></div></div>'''.encode()
+            args = SimpleNamespace(limit=1, base="JEF1", paginas=2, timeout=60, retentar=False, raw_dir=work)
+            with patch("bpc_ingestion.cli.CjfClient") as client:
+                client.documents.side_effect = CjfClient.documents
+                client.return_value.pages.return_value = [(html, html)]
+                self.assertEqual(collect_cjf_sample(args, Settings(database_url=url)), 0)
+                client.return_value.pages.assert_called_once_with("10530783720224013400", "JEF1", 2)
+                client.return_value.pages.reset_mock()
+                self.assertEqual(collect_cjf_sample(args, Settings(database_url=url)), 0)
+                client.return_value.pages.assert_not_called()
+            store = PostgresStore(url)
+            try:
+                with store.Session() as session:
+                    self.assertEqual(len(list(session.scalars(select(DocumentoProcesso)))), 1)
+                    self.assertEqual(len(list(session.scalars(select(Processo)))), 1)
+                    run = session.scalar(select(Coleta))
+                    self.assertEqual(run.status, "concluida")
+                    self.assertEqual(run.registros, 1)
+                    with gzip.open(run.arquivo_bruto, "rb") as source:
+                        self.assertEqual(source.read(), html)
+            finally:
+                store.close()
 
     def test_versions_exact_links_api_and_no_new_processes(self):
         engine = make_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)

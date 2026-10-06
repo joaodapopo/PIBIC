@@ -19,9 +19,9 @@ from urllib.parse import urlencode, urljoin
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 from bs4 import BeautifulSoup
-from sqlalchemy import inspect, select
+from sqlalchemy import String, cast, inspect, or_, select
 
-from .models import DocumentoProcesso, DocumentoPublico, Processo
+from .models import Coleta, DocumentoProcesso, DocumentoPublico, Processo, RegistroAssunto, RegistroDatajud
 
 
 class SourceBlocked(RuntimeError):
@@ -280,6 +280,31 @@ def ensure_document_tables(engine) -> None:
         raise ValueError("Base da aplicação inexistente; inicialize/restaure o banco primeiro")
     for table in (DocumentoPublico.__table__, DocumentoProcesso.__table__):
         table.create(engine, checkfirst=True)
+
+
+def cjf_partition(number: str, base: str, pages: int) -> str:
+    return f"{number}/{base}/p{pages}/v1"
+
+
+def pending_cjf_sample(session, base: str, pages: int, limit: int, retry: bool = False):
+    """Existing public BPC candidates at Brasília organs; never infer residence."""
+    query = (select(Processo).join(RegistroDatajud, RegistroDatajud.processo_id == Processo.id)
+             .join(RegistroAssunto, RegistroAssunto.registro_id == RegistroDatajud.id)
+             .where(RegistroDatajud.tribunal == "TRF1", RegistroDatajud.grau.in_(("G1", "JE")),
+                    cast(RegistroDatajud.payload["orgaoJulgador"]["codigoMunicipioIBGE"].as_string(), String) == "743",
+                    or_(RegistroDatajud.nivel_sigilo == 0, RegistroDatajud.nivel_sigilo.is_(None)),
+                    RegistroAssunto.assunto_codigo.in_((6114, 11946, 11947)))
+             .distinct().order_by(Processo.id))
+    completed = set() if retry else set(session.scalars(
+        select(Coleta.particao).where(Coleta.fonte == "cjf_amostra",
+                                      Coleta.status.in_(("concluida", "sem_resultado")))))
+    result = []
+    for process in session.scalars(query):
+        if cjf_partition(process.numero_processo, base, pages) not in completed:
+            result.append(process.numero_processo)
+            if len(result) >= limit:
+                break
+    return result
 
 
 class ArchiveClient:

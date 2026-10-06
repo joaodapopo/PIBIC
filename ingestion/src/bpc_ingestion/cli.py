@@ -25,7 +25,7 @@ from .models import ExtracaoIa, IndicadorInssIndeferimento, Processo
 from .persistence import agora_iso
 from .postgres_store import PostgresStore
 from .public_sources import (ArchiveClient, CjfClient, PublicHttp, SourceBlocked, StjClient, bpc_text, ensure_document_tables,
-                             preserve_raw, store_document, stj_document)
+                             cjf_partition, pending_cjf_sample, preserve_raw, store_document, stj_document)
 from .sqlite_store import SqliteStore
 from .transparencia import TransparenciaClient, meses_no_periodo, normalizar_indicador
 
@@ -99,6 +99,13 @@ def construir_parser() -> argparse.ArgumentParser:
     sources.add_argument("--base", choices=("TRF1", "JEF1"), default="TRF1")
     sources.add_argument("--timeout", type=float, default=60)
     sources.add_argument("--raw-dir", default="data/raw")
+    sample = commands.add_parser("cjf-amostra", help="Busca textos públicos por CNJ da amostra existente de Brasília")
+    sample.add_argument("--limit", type=int, default=10, help="Número de processos a consultar, 1..50")
+    sample.add_argument("--base", choices=("TRF1", "JEF1"), default="JEF1")
+    sample.add_argument("--paginas", type=int, default=2)
+    sample.add_argument("--timeout", type=float, default=120)
+    sample.add_argument("--retentar", action="store_true", help="Consulta novamente também os sucessos/vazios")
+    sample.add_argument("--raw-dir", default="data/raw")
     benefits = commands.add_parser("inss-indeferimentos", help="Agrega motivos BPC por competência e UF")
     benefits.add_argument("--competencia", type=int, required=True)
     benefits.add_argument("--uf", default="DF")
@@ -453,6 +460,46 @@ def collect_public_documents(args: argparse.Namespace, settings: Settings) -> in
     return 0
 
 
+def collect_cjf_sample(args: argparse.Namespace, settings: Settings) -> int:
+    if not 1 <= args.limit <= 50 or not 1 <= args.paginas <= 20 or not 0 < args.timeout <= 600:
+        raise ValueError("Use limit 1..50, paginas 1..20 e timeout positivo até 600")
+    store = PostgresStore(settings.database_url)
+    try:
+        ensure_document_tables(store.engine)
+        with store.Session() as session:
+            numbers = pending_cjf_sample(session, args.base, args.paginas, args.limit, args.retentar)
+        LOGGER.info("CJF %s: %d processos pendentes da amostra; sem envio à IA", args.base, len(numbers))
+        client = CjfClient(PublicHttp(timeout=args.timeout))
+        for number in numbers:
+            query = ''.join(c for c in number if c.isdigit())
+            run = store.start_collection("cjf_amostra", cjf_partition(number, args.base, args.paginas),
+                                         {"numero_processo": number, "base": args.base, "paginas": args.paginas,
+                                          "query": query, "versao_consulta": "cnj_digitos_v1"})
+            observed = linked = inserted = 0
+            raw = None
+            try:
+                for original, body in client.pages(query, args.base, args.paginas):
+                    raw = preserve_raw(original, Path(args.raw_dir), "cjf_amostra", run,
+                                       "html" if original == body else "xml")
+                    documents = CjfClient.documents(body, args.base)
+                    with store.Session.begin() as session:
+                        for document in documents:
+                            inserted += int(store_document(session, document, run, raw))
+                            observed += 1
+                            linked += int(number in document["numeros_cnj"])
+                store.finish_collection(run, "concluida" if observed else "sem_resultado", observed,
+                                        raw_file=str(raw) if raw else None)
+                LOGGER.info("CJF %s %s: %d documentos, %d novos, %d com CNJ exato", args.base, number,
+                            observed, inserted, linked)
+            except Exception as exc:
+                store.finish_collection(run, "bloqueada" if isinstance(exc, SourceBlocked) else "falhou",
+                                        observed, raw_file=str(raw) if raw else None, error=str(exc))
+                raise RuntimeError(f"CJF amostra {number}: {exc}; sucessos anteriores preservados") from exc
+    finally:
+        store.close()
+    return 0
+
+
 def collect_inss_benefits(args: argparse.Namespace, settings: Settings) -> int:
     import gzip
     from .models import Coleta
@@ -521,6 +568,8 @@ def executar(argv: Sequence[str] | None = None) -> int:
         return ipeaia_triage(args, settings)
     if args.command == "documentos-publicos":
         return collect_public_documents(args, settings)
+    if args.command == "cjf-amostra":
+        return collect_cjf_sample(args, settings)
     if args.command == "inss-indeferimentos":
         return collect_inss_benefits(args, settings)
     if args.command == "verificar-arquivo-trf1":

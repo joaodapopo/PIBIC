@@ -130,6 +130,22 @@ git pull
 .\.venv\Scripts\python.exe -m bpc_ingestion arquivo-trf1 --numero 1053078-37.2022.4.01.3400
 ```
 
+Para procurar documentos dos próprios processos da amostra, execute:
+
+```powershell
+.\.venv\Scripts\python.exe -m bpc_ingestion cjf-amostra --base JEF1 --limit 10 --timeout 120
+.\.venv\Scripts\python.exe -m bpc_ingestion cjf-amostra --base TRF1 --limit 10 --timeout 120
+```
+
+Repetir avança para os próximos candidatos públicos BPC de órgãos de Brasília;
+não depende de ter passado pela IpeaIA. As duas bases têm controles separados.
+Vazios e sucessos ficam registrados em `coletas`; não comprovam inexistência
+de decisão nem concessão inicial. Para rever consultas concluídas, use
+`--retentar`; para consultar mais páginas por processo, use `--paginas` (1..20).
+Erros interrompem o lote e mantêm gravações anteriores. Busca sem credenciais,
+sem contornar CAPTCHA e sem enviar o texto à IA. CNJ mencionado apenas no
+corpo do documento não gera vínculo: o número estruturado tem que coincidir.
+
 Para incluir os acórdãos históricos do STJ, opcionalmente:
 
 ```powershell

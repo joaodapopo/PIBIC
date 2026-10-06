@@ -165,6 +165,14 @@ comando de lote em `SEM_DOCKER.md`.
   descreve DataJud e ferramentas de monitoramento/prazos, não nova base de inteiro
   teor. Não foi instalado: reutilizar o que já temos não resolve cobertura textual.
 
+O comando `cjf-amostra` consulta candidatos BPC públicos TRF1/G1/JE de órgãos
+de Brasília usando os números da base, sem pontuação. O portal rejeita hífen
+na pesquisa livre. Teste de controle com número de documento já conhecido
+retornou um documento; consultas reais de 10 candidatos no TRF1 e 5 no JEF1
+retornaram zero. Esses vazios ficam em `coletas` e a próxima execução avança
+na mesma base/configuração; erros/bloqueios não viram vazio. Isso não comprova
+inexistência de documentos no processo. O comando não depende da triagem IA.
+
 O pacote SQLite no Git permanece o original; os dados novos estão só em
 `data/bpc-remote.sqlite` local e são reproduzíveis pelos comandos de coleta no
 ambiente remoto. Não enviar os textos/microdados brutos ao Git nem à API IA
