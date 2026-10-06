@@ -1,4 +1,4 @@
-# Contrato de dados BPC Jud — v0.3
+# Contrato de dados BPC Jud — v0.4
 
 Este documento substitui o contrato v0.1 baseado em SQLite/MongoDB.
 
@@ -112,7 +112,7 @@ selecionado; a coluna `vector` aceita armazenamento antes da criação de um ín
 específico por dimensão/modelo.
 
 O piloto IpeaIA usa `extracoes_ia.tipo_extracao = triagem_bpc`,
-`versao_prompt = bpc_triagem_api_v1.0`, `resultado` JSONB validado e
+`versao_prompt = bpc_triagem_api_v1.1`, `resultado` JSONB validado e
 `status_validacao = pendente`. O modelo vem de `IPEAIA_MODEL` ou `--model`.
 Envia apenas campos normalizados de registros públicos TRF1/G1/JE do órgão de
 Brasília: classe, órgão, assuntos e movimentos sem complementos, com indicação
@@ -126,14 +126,26 @@ Respostas IpeaIA rejeitadas não são persistidas em `extracoes_ia`. Para diagn�
 o CLI salva em `data/ipeaia_rejeitadas/<id>.json` a entrada enviada, modelo,
 versão do prompt, erro e resposta da API (token removido). Os arquivos ficam
 fora do Git; não são classificações nem registros Bronze imutáveis. O processo
-continua pendente. O prompt e o schema de resultados permanecem na versão v1.0.
+continua pendente. Extrações anteriores v1.0 são preservadas; o prompt v1.1
+tem contrato explícito para evidências e não sobrescreve os resultados anteriores.
+Por usar outra versão, uma execução v1.1 pode selecionar novamente processos
+já triados na v1.0.
 
 O parser aceita JSON puro ou um único bloco Markdown JSON, sem texto externo.
 Caminhos de evidência como `classe.nome`, `assuntos[0].nome` e
 `movimentacoes[sequencia=12].nome` são aceitos somente quando existem no registro
 efetivamente enviado (não no conjunto de movimentos omitidos por truncamento).
-São normalizados para `classe`, `assuntos`, `movimentacoes` ou `orgao_julgador`,
-mantendo o caminho original como prefixo de `referencia`; o schema não muda.
+O objeto de evidência mantém exatamente `registro_id` (inteiro da entrada),
+`campo`, `referencia` e `sustenta` (textos). `campo` pode ser `classe`, `assuntos`,
+`movimentacoes`, `orgao_julgador`, `tribunal` ou `grau`. Os dois últimos são
+metadados já enviados e apoiam recorte jurisdicional, não mérito ou residência.
+Caminhos são normalizados para o campo raiz, mantendo o caminho original como
+prefixo de `referencia`. Referências compostas separadas por `/`, como
+`tribunal / grau`, geram uma evidência por componente, somente se TODOS forem
+campos/caminhos permitidos e presentes no registro enviado. Preservam o ID,
+o texto de sustentação e a referência original com prefixo do campo composto.
+Componentes inexistentes ou vazios rejeitam toda a resposta; nenhuma evidência
+é descartada silenciosamente. Não há mudança de tabelas ou colunas.
 Isso valida estrutura e vínculo, não a interpretação factual, ainda pendente
 de revisão humana. Quando a API informa modelo diferente do solicitado, a
 resposta é rejeitada com diagnóstico para não registrar atribuição incorreta.
@@ -156,6 +168,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Versionar prompt de triagem em v1.1, explicitar formato e permitir evidências de `tribunal`/`grau`; desmembrar campos compostos válidos separados por `/`. | Resolve incompatibilidade `tribunal / grau` sem inventar vínculos nem descartar evidências. Metadados já enviados; enum de `campo` ampliado neste contrato. Resultados v1.0 preservados e passíveis de nova triagem v1.1. |
 | 05/10/2026 | Aceitar bloco Markdown JSON e normalizar caminhos de evidências existentes; rejeitar divergência de modelo informada pela API. | Corrige incompatibilidade de formato observada no GLM sem aceitar caminhos inexistentes nem mudar o schema; preserva rastreabilidade do caminho em `referencia`. |
 | 05/10/2026 | Detalhar falhas de evidências e conservar respostas IpeaIA rejeitadas em diagnóstico local sem token. | Não aceitar IDs externos à entrada nem formatos inválidos; nenhuma extração gravada para o processo rejeitado e nenhuma repetição automática. Sem alteração do schema ou da metodologia. |
 | 05/10/2026 | Usar cópia SQLite no servidor remoto sem Docker; manter PostgreSQL na origem. | Mesmas tabelas e dados da aplicação; extrações de IA persistidas em `data/bpc-remote.sqlite`. Embeddings armazenados como JSON, sem busca pgvector nesse ambiente. |

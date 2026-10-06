@@ -10,7 +10,7 @@ abaixo quando a transferência ocorrer pelo Git.
 
 Versão do prompt de referência: `bpc_triagem_v1.0` — 22/09/2026.
 O cliente automatizado usa uma instrução operacional mais curta, versionada
-separadamente como `bpc_triagem_api_v1.0` em `ipeaia.py`; não misture os
+separadamente como `bpc_triagem_api_v1.1` em `ipeaia.py`; não misture os
 resultados das duas versões numa avaliação sem distinguir a origem.
 
 Este arquivo serve para iniciar **triagem assistida**, não para produzir conclusões

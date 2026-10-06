@@ -87,6 +87,12 @@ existentes são normalizados sem alterar o contrato. Se aparecer `Modelo
 divergente`, confirme o ID com `ipeaia-modelos` e use `--model` com o modelo
 correto; a aplicação não grava uma resposta atribuída a outro modelo.
 
+O prompt atual é `bpc_triagem_api_v1.1` e orienta uma evidência por campo,
+incluindo `tribunal` e `grau`. Se o modelo ainda combinar campos com `/`, o
+parser separa a evidência somente quando todos os componentes existem na
+entrada. Resultados v1.0 permanecem no banco; a nova versão pode triar novamente
+os mesmos processos. Não é necessário restaurar ou inicializar a base de novo.
+
 ## Atualizar a cópia no futuro
 
 A origem PostgreSQL permanece na máquina local. O módulo

@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from urllib.error import URLError
 
-from bpc_ingestion.ipeaia import (IpeaIaClient, PROMPT_VERSION, RejectedIpeaResponse,
+from bpc_ingestion.ipeaia import (IpeaIaClient, PROMPT_VERSION, SYSTEM_PROMPT, RejectedIpeaResponse,
                                 build_input, save_rejected_response, validate_result)
 
 
@@ -163,6 +163,39 @@ class IpeaIaTest(unittest.TestCase):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "caminho existente"):
                 validate_result(dict(self.result, evidencias=[
                     dict(self.result["evidencias"][0], campo=path)]), self.source)
+
+    def test_desmembra_tribunal_grau_sem_alterar_resposta_original(self):
+        original = dict(self.result, evidencias=[dict(self.result["evidencias"][0],
+            campo="tribunal / grau", referencia="TRF1 / JE")])
+        result = validate_result(original, self.source)
+        self.assertEqual([e["campo"] for e in result["evidencias"]], ["tribunal", "grau"])
+        for evidence in result["evidencias"]:
+            self.assertEqual(evidence["registro_id"], 7)
+            self.assertEqual(evidence["referencia"], "tribunal / grau: TRF1 / JE")
+            self.assertEqual(evidence["sustenta"], "candidato")
+            self.assertEqual(set(evidence), {"registro_id", "campo", "referencia", "sustenta"})
+        self.assertEqual(original["evidencias"][0]["campo"], "tribunal / grau")
+
+    def test_rejeita_composto_se_qualquer_componente_for_invalido(self):
+        for field in ("tribunal / inventado", "tribunal / grau /", "tribunal // grau",
+                      "tribunal / movimentacoes[sequencia=2].nome", "tribunal, grau"):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_result(dict(self.result, evidencias=[
+                    dict(self.result["evidencias"][0], campo=field)]), self.source)
+
+    def test_tribunal_grau_exigem_presenca_na_entrada(self):
+        source = dict(self.source, registros=[dict(self.source["registros"][0])])
+        del source["registros"][0]["grau"]
+        with self.assertRaises(ValueError):
+            validate_result(dict(self.result, evidencias=[
+                dict(self.result["evidencias"][0], campo="tribunal / grau")]), source)
+
+    def test_prompt_explica_contrato_e_usa_versao_atual(self):
+        self.assertEqual(PROMPT_VERSION, "bpc_triagem_api_v1.1")
+        self.assertIn(PROMPT_VERSION, SYSTEM_PROMPT)
+        self.assertNotIn("bpc_triagem_api_v1.0", SYSTEM_PROMPT)
+        self.assertIn("tribunal, grau", SYSTEM_PROMPT)
+        self.assertIn("Não combine", SYSTEM_PROMPT)
 
     @patch("bpc_ingestion.ipeaia.urlopen")
     def test_rejeita_texto_extra_fora_do_bloco_json(self, open_url):
