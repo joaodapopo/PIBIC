@@ -280,7 +280,28 @@ público `https://arquivo.trf1.jus.br/js/pages/index.js` usa
 `{"params":"35","existeProcesso":false,"retorno":"..."}`. Não comprovou
 disponibilidade de documentos da amostra. O CLI conserva a resposta e distingue
 `sem_resultado`, `bloqueada`, `falhou` e `localizado`; a consulta de disponibilidade
-ainda NÃO implementa download/conversão dos DOC/TIFF quando houver resultado.
+agora pode baixar documentos com `--baixar`, após consulta positiva. A busca
+de controle pelo CNJ 0058364-48.2010.4.01.0000, citado em publicação oficial
+TRF1, retornou documentos DOC. Esse controle é de outro tema: não entra na
+amostra BPC. A listagem vem de `POST /PesquisaMenuArquivo.asp`, com `pN`, `pA`
+e `p1` provenientes da resposta de localização; o parser exige que a página
+informe o CNJ solicitado no cabeçalho `Processo Pesquisado`.
+Só baixa links DOC/TIF/TIFF presentes nessa listagem e do mesmo host HTTPS.
+Cada arquivo conserva bytes na Bronze; `documento_id` é seu caminho oficial,
+`payload` registra CNJ, tipo, publicação, URL, SHA-256 dos bytes e
+`extracao_texto=pendente`. `texto`, `ementa` e `decisao` ficam nulos para arquivo
+binário: download não equivale a texto convertido. Foi observado também DOC
+que é texto simples, com cabeçalho `TRIBUNAL REGIONAL FEDERAL`, sem bytes NUL.
+Nesse caso específico `texto` recebe o conteúdo decodificado estritamente em
+UTF-8 (ou Windows-1252 se necessário), com `extracao_texto=texto_simples` e
+encoding registrado no payload. Não interpretar HTML de erro como documento.
+Não executa Word/macros nem
+OCR automaticamente. Conversão DOC/TIFF continua pendente. Os vínculos usam
+somente o CNJ explicitamente confirmado pela listagem, sem criar processos.
+Limite de arquivos por execução não comprova cobertura de autos completos.
+A API de documentos expõe `extracao_texto` do payload para indicar no painel
+arquivo binário ainda pendente versus texto simples já disponível. Não é
+validação semântica da decisão ou autorização para transmissão de dados pessoais.
 
 O CJF foi acessado por formulário JSF público, com ViewState e cookies de sessão,
 sem credencial institucional, em TRF1/JEF1. Paginação AJAX foi testada em duas
@@ -342,6 +363,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Implementar download do arquivo TRF1 após localização positiva e confirmação do CNJ na listagem. | Controle positivo oficial e um BPC de 2006 no Piauí foram localizados; certidão/ementa deste último geraram dois vínculos reais com a base. Ele fica fora DF/RIDE. Texto simples lido; DOC binário/OCR TIFF pendentes, sem envio à IA. Originais preservados localmente. |
 | 06/10/2026 | Acrescentar busca CJF por CNJ da própria amostra, com lote retomável e vazio separado de erro. | Consulta real: 10 TRF1 e 5 JEF1 sem resultados nos limites pedidos; busca de controle com CNJ já conhecido retornou documento. Repetição JEF1 avançou aos próximos pendentes. Não comprova falta de decisões nos autos. Vínculo exige CNJ estruturado; textos seguem locais e não são enviados à IA. |
 | 06/10/2026 | Incluir histórico ZIP oficial STJ mediante `--historico`, com Bronze antes do parsing e limites de expansão. | Coleta real acrescentou 20 documentos históricos da Segunda Turma; corpus local agora tem 31 documentos (21 STJ, 10 CJF), zero vínculos. Os 2.584 processos originais não foram alterados. Histórico completo e textos do recorte continuam não comprovados; sem envio automático à IA. |
 | 06/10/2026 | Integrar corpus CJF/TRF1/JEF1 e STJ, e agregados de indeferimentos INSS; testar disponibilidade no arquivo TRF1 sem bypass. | 11 documentos e 24 agregados reais na cópia SQLite local; zero vínculos com a amostra. Novas tabelas aditivas, origem/versões preservadas. Arquivo TRF1 sem documentos localizados nos CNJs testados; download DOC/TIFF segue pendente. Dados novos não acompanham o Git nem entram automaticamente na IpeaIA. |

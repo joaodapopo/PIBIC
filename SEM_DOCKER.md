@@ -178,7 +178,21 @@ das linhas são conferidos. Não versionar essa planilha: contém microdados.
 Limites: STJ até 24 recursos JSON recentes por conjunto, com ZIP histórico opcional;
 CJF até 20 páginas e 500 documentos por execução, respeitando intervalo entre
 requisições. Para mudar a cobertura, selecione termos/períodos sem supor que isso
-representa todos os processos. `arquivo-trf1` só consulta disponibilidade;
+representa todos os processos. Sem `--baixar`, `arquivo-trf1` só consulta disponibilidade.
+Para baixar arquivos publicados quando o processo for localizado:
+
+```powershell
+.\.venv\Scripts\python.exe -m bpc_ingestion arquivo-trf1 --numero 0003970-58.2006.4.01.4001 --baixar --limite-documentos 10
+```
+
+Esse número é um controle BPC do Piauí já presente na base, não do recorte DF/RIDE.
+Substitua por um CNJ desejado. DOC/TIFF ficam na Bronze local; são registrados
+em `documentos_publicos` e vinculados pelo CNJ confirmado pela listagem.
+DOC binário/TIFF não ganham texto fictício: conversão/OCR continua pendente.
+Certidões observadas com extensão DOC mas conteúdo de texto simples são lidas
+estritamente em UTF-8/Windows-1252. O painel mostra o estado da extração.
+Não execute os arquivos no Word nem publique os textos brutos no Git.
+
 `existeProcesso:false` não significa inexistência no DataJud. Anti-robô resulta
 em `bloqueada`, nunca é contornado.
 

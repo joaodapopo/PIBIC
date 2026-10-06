@@ -128,6 +128,55 @@ class PublicSourcesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ArchiveClient(http).lookup("1053078-37.2022.4.01.3400")
 
+    def test_archive_positive_menu_identity_links_and_binary_provenance(self):
+        number = "0058364-48.2010.4.01.0000"
+        html = f'''<h2>Processo Pesquisado: {number}</h2><table><tr>
+            <td><a href="/AGText/2010/0058300/00583644820104010000_3.doc">Ementa</a></td>
+            <td><a href="/AGText/2010/0058300/00583644820104010000_3.doc">13/09/2011</a></td>
+            </tr></table>'''.encode()
+        entries = ArchiveClient.documents(html, number)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["publicacao"], date(2011, 9, 13))
+        body = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"test-fixture"
+        document = ArchiveClient.document(entries[0], body)
+        self.assertEqual(document["numeros_cnj"], [number])
+        self.assertIsNone(document["texto"])
+        self.assertEqual(document["payload"]["extracao_texto"], "pendente")
+        self.assertEqual(len(document["payload"]["sha256_arquivo"]), 64)
+        with self.assertRaises(ValueError):
+            ArchiveClient.document(entries[0], b"<html>Server error</html>")
+        with self.assertRaises(ValueError):
+            ArchiveClient.documents(html, "1053078-37.2022.4.01.3400")
+        with self.assertRaises(ValueError):
+            ArchiveClient.documents(html.replace(b'/AGText/', b'https://external.test/AGText/'), number)
+        http = Mock()
+        http.fetch.return_value = html
+        self.assertEqual(ArchiveClient(http).menu(number, {"existeProcesso": True,
+            "procCNJ": "583644820104010000", "procTRF": "583644820104010000"}), html)
+        self.assertEqual(dict(http.fetch.call_args.args[1])["pN"], "583644820104010000")
+        with self.assertRaises(ValueError):
+            ArchiveClient(http).menu(number, {"existeProcesso": False})
+
+    def test_archive_tiff_is_preserved_without_inventing_ocr_text(self):
+        entry = {"url": "https://arquivo.trf1.jus.br/archive/1.tif", "tipo": "Decisão",
+                 "publicacao": None, "numero_processo": "0058364-48.2010.4.01.0000"}
+        doc = ArchiveClient.document(entry, b"II*\x00test-fixture")
+        self.assertIsNone(doc["decisao"])
+        self.assertIsNone(doc["texto"])
+        self.assertEqual(api.public_document_json(DocumentoPublico(**doc))["extracao_texto"], "pendente")
+
+    def test_archive_doc_plain_text_observed_format_and_encoding(self):
+        entry = {"url": "https://arquivo.trf1.jus.br/AGText/1.doc", "tipo": "Certidão",
+                 "publicacao": None, "numero_processo": "0058364-48.2010.4.01.0000"}
+        text = "TRIBUNAL REGIONAL FEDERAL DA PRIMEIRA REGIÃO\r\nCertidão de publicação."
+        for encoding in ("utf-8", "cp1252"):
+            doc = ArchiveClient.document(entry, text.encode(encoding))
+            self.assertEqual(doc["texto"], text)
+            self.assertEqual(doc["payload"]["encoding_texto"], encoding)
+            self.assertEqual(doc["payload"]["extracao_texto"], "texto_simples")
+        with self.assertRaises(ValueError):
+            ArchiveClient.document(entry, b"TRIBUNAL REGIONAL FEDERAL\x00invalid")
+
     def test_postgres_document_ddl_preserves_types_and_foreign_keys(self):
         ddl = str(CreateTable(DocumentoPublico.__table__).compile(dialect=postgresql.dialect()))
         self.assertIn("JSONB", ddl)

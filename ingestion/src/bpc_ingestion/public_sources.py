@@ -15,7 +15,7 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 from bs4 import BeautifulSoup
@@ -323,6 +323,78 @@ class ArchiveClient:
         if not isinstance(result, dict) or type(result.get("existeProcesso")) is not bool:
             raise ValueError("Arquivo TRF1 retornou contrato inesperado")
         return body, result
+
+    def menu(self, number: str, result: dict[str, Any]) -> bytes:
+        if result.get("existeProcesso") is not True:
+            raise ValueError("Arquivo TRF1 não localizou o processo; não buscar documentos")
+        values = {key: str(result.get(key) or "") for key in ("procCNJ", "procTRF")}
+        if not all(re.fullmatch(r"\d{10,20}", value) for value in values.values()):
+            raise ValueError("Localização TRF1 sem identificadores válidos para a listagem")
+        body = self.http.fetch("https://arquivo.trf1.jus.br/PesquisaMenuArquivo.asp",
+                               [("pN", values["procCNJ"]), ("pA", values["procTRF"]),
+                                ("p1", values["procCNJ"])])
+        # Confirm identity before allowing any downloads.
+        self.documents(body, number)
+        return body
+
+    @staticmethod
+    def documents(body: bytes, number: str) -> list[dict[str, Any]]:
+        normalized = cnj_number(number)
+        soup = BeautifulSoup(body, "html.parser")
+        match = re.search(r"Processo\s+Pesquisado:\s*(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})",
+                          soup.get_text(" ", strip=True), re.I)
+        if normalized is None or match is None or cnj_number(match[1]) != normalized:
+            raise ValueError("Listagem TRF1 não confirma o CNJ solicitado")
+        result, seen = [], set()
+        for row in soup.find_all("tr"):
+            for link in row.find_all("a", href=True):
+                url = urljoin("https://arquivo.trf1.jus.br/", link["href"])
+                parsed = urlparse(url)
+                if not re.search(r"\.(?:doc|tif|tiff)$", parsed.path, re.I):
+                    continue
+                if (parsed.scheme != "https" or parsed.hostname != "arquivo.trf1.jus.br"
+                        or parsed.port not in (None, 443) or parsed.username or parsed.password):
+                    raise ValueError("Link de documento TRF1 fora da origem HTTPS permitida")
+                if url in seen:
+                    continue
+                seen.add(url)
+                result.append({"url": url, "tipo": link.get_text(" ", strip=True) or "Documento",
+                               "publicacao": public_date(row.get_text(" ", strip=True)),
+                               "numero_processo": normalized})
+        if not result:
+            raise ValueError("Listagem TRF1 positiva sem links DOC/TIFF reconhecidos")
+        return result
+
+    @staticmethod
+    def document(entry: dict[str, Any], body: bytes) -> dict[str, Any]:
+        suffix = Path(urlparse(entry["url"]).path).suffix.lower()
+        text, encoding = None, None
+        if suffix == ".doc":
+            valid = body.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+            if not valid and body.startswith(b"TRIBUNAL REGIONAL FEDERAL") and b"\x00" not in body:
+                for encoding in ("utf-8", "cp1252"):
+                    try:
+                        text = body.decode(encoding)
+                        valid = True
+                        break
+                    except UnicodeDecodeError:
+                        continue
+        else:
+            valid = body.startswith((b"II*\x00", b"MM\x00*"))
+        if not valid:
+            raise ValueError("Arquivo TRF1 não possui assinatura binária DOC/TIFF esperada")
+        number = cnj_number(entry["numero_processo"])
+        if number is None:
+            raise ValueError("Documento TRF1 sem CNJ confirmado")
+        payload = {"numero_processo": number, "tipo": entry["tipo"], "url": entry["url"],
+                   "data_publicacao": entry["publicacao"].isoformat() if entry["publicacao"] else None,
+                   "sha256_arquivo": hashlib.sha256(body).hexdigest(),
+                   "extracao_texto": "texto_simples" if text else "pendente", "encoding_texto": encoding if text else None}
+        return {"fonte": "trf1_arquivo", "documento_id": urlparse(entry["url"]).path, "tribunal": "TRF1",
+                "tipo_documento": entry["tipo"], "numero_origem": number, "numeros_cnj": [number],
+                "data_publicacao": entry["publicacao"], "data_decisao": None,
+                "ementa": None, "decisao": None, "texto": text, "url_origem": entry["url"],
+                "recurso_url": entry["url"], "payload": payload}
 
 
 def store_document(session, document: dict[str, Any], run: str, raw: Path) -> bool:

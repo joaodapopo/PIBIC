@@ -10,7 +10,31 @@
 let offset=0, total=0;
 const el=id=>document.getElementById(id);
 function add(parent,tag,text){const node=document.createElement(tag);node.textContent=text;parent.append(node);return node;}
-async function load(){el('status').textContent='Carregando…';try{const params=new URLSearchParams({limit:20,offset});if(el('source').value)params.set('fonte',el('source').value);if(el('query').value)params.set('texto',el('query').value);const response=await fetch('/admin/api/documentos?'+params);if(!response.ok)throw new Error('Falha HTTP '+response.status);const data=await response.json();total=data.total;el('results').replaceChildren();el('status').textContent=data.schema_disponivel?`${total} versões de documentos. Origem preservada; conteúdo ainda não validado por revisão humana.`:'Execute uma coleta para criar as tabelas complementares.';for(const item of data.itens){const card=add(el('results'),'article','');add(card,'h2',`${item.tribunal||item.fonte} · ${item.tipo_documento||'Documento'} · ${item.numero_origem||item.documento_id}`);add(card,'small',`${item.fonte} · publicado em ${item.data_publicacao||'data não informada'} · CNJ explícito: ${item.numeros_cnj.join(', ')||'não informado; sem vínculo automático'}`);for(const [label,text] of [['Ementa',item.ementa],['Decisão publicada',item.decisao],['Texto do espelho',item.texto]]){if(text){const details=add(card,'details','');add(details,'summary',label);add(details,'pre',text);}}const url=new URL(item.url_origem);if(url.protocol==='https:'){const link=add(card,'a','Abrir fonte oficial');link.href=url;link.target='_blank';link.rel='noopener noreferrer';}}el('prev').disabled=offset===0;el('next').disabled=offset+20>=total;}catch(error){el('status').textContent=error.message;}}
+async function load(){
+  el('status').textContent='Carregando…';
+  try{
+    const params=new URLSearchParams({limit:20,offset});
+    if(el('source').value)params.set('fonte',el('source').value);
+    if(el('query').value)params.set('texto',el('query').value);
+    const response=await fetch('/admin/api/documentos?'+params);
+    if(!response.ok)throw new Error('Falha HTTP '+response.status);
+    const data=await response.json(); total=data.total; el('results').replaceChildren();
+    el('status').textContent=data.schema_disponivel?`${total} versões de documentos. Origem preservada; conteúdo ainda não validado por revisão humana.`:'Execute uma coleta para criar as tabelas complementares.';
+    for(const item of data.itens){
+      const card=add(el('results'),'article','');
+      add(card,'h2',`${item.tribunal||item.fonte} · ${item.tipo_documento||'Documento'} · ${item.numero_origem||item.documento_id}`);
+      add(card,'small',`${item.fonte} · publicado em ${item.data_publicacao||'data não informada'} · CNJ explícito: ${item.numeros_cnj.join(', ')||'não informado; sem vínculo automático'}`);
+      if(item.extracao_texto==='pendente')add(card,'p','Arquivo original baixado. Texto pendente de conversão DOC ou OCR TIFF; ainda não analisável pela IA.');
+      if(item.extracao_texto==='texto_simples')add(card,'p','Texto simples publicado pela fonte, sem OCR. Ainda depende de revisão humana.');
+      for(const [label,text] of [['Ementa',item.ementa],['Decisão publicada',item.decisao],['Texto publicado',item.texto]]){
+        if(text){const details=add(card,'details','');add(details,'summary',label);add(details,'pre',text);}
+      }
+      const url=new URL(item.url_origem);
+      if(url.protocol==='https:'){const link=add(card,'a','Abrir fonte oficial');link.href=url;link.target='_blank';link.rel='noopener noreferrer';}
+    }
+    el('prev').disabled=offset===0; el('next').disabled=offset+20>=total;
+  }catch(error){el('status').textContent=error.message;}
+}
 el('filter').addEventListener('submit',event=>{event.preventDefault();offset=0;load();});el('prev').onclick=()=>{offset=Math.max(0,offset-20);load();};el('next').onclick=()=>{offset+=20;load();};load();
 async function loadInss(){try{const response=await fetch('/admin/api/indeferimentos-inss?uf=DF');if(!response.ok)throw new Error('Falha ao carregar INSS');const data=await response.json();if(!data.itens.length){add(el('inss'),'p','Nenhum agregado INSS coletado.');return;}const table=add(el('inss'),'table','');const heading=add(table,'tr','');for(const title of ['Competência','Espécie','Motivo publicado','Indeferimentos'])add(heading,'th',title);for(const item of data.itens){const row=add(table,'tr','');for(const value of [item.competencia,item.especie===87?'BPC — deficiência':'BPC — idoso',item.motivo,item.quantidade])add(row,'td',String(value));}}catch(error){add(el('inss'),'p',error.message);}}loadInss();
 </script></html>

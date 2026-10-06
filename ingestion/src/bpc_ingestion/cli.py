@@ -115,6 +115,9 @@ def construir_parser() -> argparse.ArgumentParser:
     commands.add_parser("verificar-arquivo-trf1", help="Verifica acesso público sem contornar anti-robô")
     archive = commands.add_parser("arquivo-trf1", help="Consulta disponibilidade por CNJ no arquivo público")
     archive.add_argument("--numero", nargs="+", required=True)
+    archive.add_argument("--baixar", action="store_true", help="Baixa os DOC/TIFF publicados, sem conversão automática")
+    archive.add_argument("--limite-documentos", type=int, default=10)
+    archive.add_argument("--timeout", type=float, default=60)
     return parser
 
 
@@ -590,18 +593,40 @@ def executar(argv: Sequence[str] | None = None) -> int:
         from .public_sources import cnj_number
         if len(args.numero) > 50 or any(cnj_number(number) is None for number in args.numero):
             raise ValueError("Informe até 50 números CNJ completos")
+        if not 1 <= args.limite_documentos <= 50 or not 0 < args.timeout <= 600:
+            raise ValueError("Use limite-documentos 1..50 e timeout positivo até 600")
         store = PostgresStore(settings.database_url)
-        run = store.start_collection("trf1_arquivo", "disponibilidade", {"numeros": args.numero})
-        found = 0
+        if args.baixar:
+            ensure_document_tables(store.engine)
+        run = store.start_collection("trf1_arquivo", "download" if args.baixar else "disponibilidade",
+                                     {"numeros": args.numero, "baixar": args.baixar,
+                                      "limite_documentos": args.limite_documentos})
+        found = downloaded = 0
         try:
-            client = ArchiveClient()
+            client = ArchiveClient(PublicHttp(timeout=args.timeout))
             for number in args.numero:
                 body, lookup = client.lookup(number)
                 raw = preserve_raw(body, Path("data/raw"), "trf1_arquivo", run, "json")
                 found += int(lookup["existeProcesso"])
                 LOGGER.info("Arquivo TRF1 %s: %s; resposta original em %s", number,
                             "localizado (documentos ainda não baixados)" if lookup["existeProcesso"] else "não localizado na fonte", raw)
-            store.finish_collection(run, "localizado" if found else "sem_resultado", found)
+                if args.baixar and lookup["existeProcesso"] and downloaded < args.limite_documentos:
+                    menu = client.menu(number, lookup)
+                    preserve_raw(menu, Path("data/raw"), "trf1_arquivo", run, "menu.html")
+                    for entry in client.documents(menu, number):
+                        if downloaded >= args.limite_documentos:
+                            break
+                        body = client.http.fetch(entry["url"])
+                        raw = preserve_raw(body, Path("data/raw"), "trf1_arquivo", run,
+                                           Path(entry["url"]).suffix.lstrip('.'))
+                        document = client.document(entry, body)
+                        with store.Session.begin() as session:
+                            created = store_document(session, document, run, raw)
+                        downloaded += 1
+                        LOGGER.info("Arquivo TRF1: documento preservado (%s), versão nova=%s, extração=%s",
+                                    entry["tipo"], created, document["payload"]["extracao_texto"])
+            status = "concluida" if downloaded else "localizado" if found else "sem_resultado"
+            store.finish_collection(run, status, downloaded if args.baixar else found)
         except Exception as exc:
             store.finish_collection(run, "bloqueada" if isinstance(exc, SourceBlocked) else "falhou", found, error=str(exc))
             raise RuntimeError(f"Arquivo TRF1: {exc}") from exc

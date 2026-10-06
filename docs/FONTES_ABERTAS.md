@@ -158,8 +158,17 @@ comando de lote em `SEM_DOCKER.md`.
   público usado pelo próprio script `js/pages/index.js` foi testado:
   `POST /localiza_processo.php`, campo `ProcInclui` com CNJ sem pontuação. Sem
   credencial. CNJs testados (2022, 2009, 2013) retornaram `existeProcesso:false`.
-  CLI `arquivo-trf1` guarda respostas e consulta disponibilidade; download e
-  conversão DOC/TIFF quando houver positivo ainda pendentes. Não houve bypass,
+  CLI `arquivo-trf1 --baixar` agora guarda a listagem e baixa DOC/TIFF a partir
+  dos links publicados. Controle positivo de outro tema: CNJ
+  0058364-48.2010.4.01.0000, citado na publicação oficial
+  [Sequestro Internacional Parental](https://www.trf1.jus.br/trf1/conteudo/files/Sequestrointernacionalparental.pdf).
+  Um BPC da própria base, 0003970-58.2006.4.01.4001 (Piauí, fora DF/RIDE),
+  também foi localizado: certidão em texto simples e ementa DOC binária foram
+  baixadas e vinculadas. São os primeiros dois vínculos reais dessa fonte.
+  Conversão DOC binário/OCR TIFF permanece pendente; certidão com cabeçalho
+  conhecido e extensão DOC, mas bytes de texto simples, foi decodificada sem OCR.
+  A API/painel distingue `extracao_texto=pendente` de `texto_simples`.
+  Não houve bypass,
   envio de e-mail automático ou uso de credencial institucional.
 - **MCP DeHor:** o [README atual](https://github.com/DeHor-Labs/mcp-juridico-brasil)
   descreve DataJud e ferramentas de monitoramento/prazos, não nova base de inteiro

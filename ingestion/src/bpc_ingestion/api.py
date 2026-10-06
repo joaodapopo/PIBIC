@@ -51,6 +51,7 @@ def public_document_json(item: DocumentoPublico) -> dict[str, Any]:
             "tipo_documento": item.tipo_documento, "tribunal": item.tribunal,
             "numero_origem": item.numero_origem, "numeros_cnj": item.numeros_cnj,
             "ementa": item.ementa, "decisao": item.decisao, "texto": item.texto,
+            "extracao_texto": (item.payload or {}).get("extracao_texto"),
             "data_publicacao": item.data_publicacao, "data_decisao": item.data_decisao,
             "url_origem": item.url_origem, "recurso_url": item.recurso_url,
             "hash_conteudo": item.hash_conteudo, "coletado_em": item.coletado_em}
