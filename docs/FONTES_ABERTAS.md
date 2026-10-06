@@ -200,3 +200,49 @@ O pacote SQLite no Git permanece o original; os dados novos estão só em
 `data/bpc-remote.sqlite` local e são reproduzíveis pelos comandos de coleta no
 ambiente remoto. Não enviar os textos/microdados brutos ao Git nem à API IA
 automaticamente. O painel `/admin/documentos` exibe corpus e agregados separados.
+
+## Pesquisa adicional: TNU, TRF3 e TRF5 — 06/10/2026
+
+Foram lidas páginas oficiais com texto decisório público, sem fornecer
+credencial. Isso confirma exemplos acessíveis, não uma API documentada,
+permissão de coleta irrestrita ou cobertura integral. Nesta rodada não houve
+importação desses documentos nem alteração da população ou do schema.
+
+| Fonte | Exemplo real e utilidade | Situação |
+| --- | --- | --- |
+| [TNU — inteiro teor](https://eproctnu-jur.cjf.jus.br/eproc/externo_controlador.php?acao=jurisprudencia%40jurisprudencia%2Fdownload_inteiro_teor&id_jurisprudencia=771782816310867611465715976907) | CNJ `5006875-14.2022.4.04.7005`, Paraná: relatório e voto sobre BPC, autismo e avaliação biopsicossocial. O texto descreve pedido e decisões nas instâncias anteriores. | Prioridade para corpus textual complementar; não integrado. Não equivale aos autos completos nem representa DF/RIDE. |
+| [TRF3 — documento publicado](https://web.trf3.jus.br/acordaos/Acordao/BuscarDocumentoPje/344467700) | CNJ `5000929-32.2025.4.03.6343`, São Paulo: relatório e voto sobre concessão de BPC; relato de negativa administrativa pelo critério econômico e discussão de renda/despesas. | HTML público confirmado; não integrado. O endereço recebe ID de documento, não número CNJ: não inventar IDs nem links. |
+| [TRF5 — jurisprudência](https://jurisprudencia.trf5.jus.br/jurisprudencia/exibir.wsp?tmp.id_documento=165824) | Texto público sobre benefício assistencial e CadÚnico. | Exemplo acessível; não integrado. A busca, paginação, estabilidade e cobertura ainda exigem piloto próprio. |
+
+O [repositório oficial TNU](https://www.cjf.jus.br/cjf/corregedoria-da-justica-federal/turma-nacional-de-uniformizacao/publicacoes-1/repositorio-tnu/repositorio-tnu/@@download/arquivo)
+também oferece PDF com CNJs, ementas e teses. A versão aberta nesta rodada
+informa atualização em 22/06/2026. É índice de jurisprudência selecionada,
+útil para localizar casos e construir categorias, não amostra aleatória.
+
+Decisão: há como melhorar o conteúdo; priorizar um piloto TNU e documentos
+publicados das turmas recursais, mantendo-os separados da população original.
+Antes de alimentar a IA com esses textos, definir contrato próprio de evidências
+documentais, anonimização, estágio da decisão e revisão humana. O piloto atual
+`ipeaia-triagem` continua enviando somente metadados DataJud + TPU e salvando
+`resumo_caso` em português simples dentro de `extracoes_ia.resultado` (v1.2).
+Não atribuir aos casos atuais motivos encontrados em outros julgados.
+
+### Integração do piloto HTML
+
+O novo comando `documentos-publicados --urls <links oficiais>` usa somente
+rotas verificadas TNU/TRF3/TRF5, guarda HTML original antes da interpretação e
+persiste no corpus versionado existente. Não descobre links por enumeração de
+IDs. Na página TNU acima, a resposta real contém sete artigos: seis têm termos
+BPC e foram gravados separadamente com seus IDs explícitos (relatório/voto,
+voto-vista, voto divergente, ementa/acórdão e dois extratos de ata). Isso não
+significa seis processos: todos identificam o mesmo CNJ. Um artigo sem termo
+temático não foi selecionado. O documento TRF5 foi gravado com CNJ explícito
+`0504973-21.2019.4.05.8108` e 14.684 caracteres de texto publicado.
+
+Reexecução real das duas URLs produziu zero versões novas. API local retornou
+HTTP 200, seis documentos TNU e um TRF5; os processos permaneceram 2.584.
+Os sete documentos não criaram vínculos novos com a amostra. O painel permite
+filtrar pelas novas fontes. Chamadas diretas TRF3 tiveram timeout nesta rodada,
+apesar do documento acessível na pesquisa web: não confundir com ausência de
+texto nem alegar coleta TRF3 concluída. Busca automática de outros links,
+cobertura integral e validação humana dos textos seguem pendentes.

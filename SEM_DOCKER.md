@@ -116,6 +116,28 @@ modelo e versão; versões anteriores são preservadas e podem ser retriadas.
 Cada sucesso é salvo imediatamente; erro interrompe o lote, mas mantém sucessos
 anteriores. Não repetir em loop um processo rejeitado sem avaliar o diagnóstico.
 
+## Documentos publicados TNU/TRF3/TRF5
+
+Com a instalação atualizada, pode baixar links oficiais conhecidos, sem token:
+
+```powershell
+.\.venv\Scripts\python.exe -m bpc_ingestion documentos-publicados --urls 'https://eproctnu-jur.cjf.jus.br/eproc/externo_controlador.php?acao=jurisprudencia%40jurisprudencia%2Fdownload_inteiro_teor&id_jurisprudencia=771782816310867611465715976907' 'https://jurisprudencia.trf5.jus.br/jurisprudencia/exibir.wsp?tmp.id_documento=165824' --timeout 120
+```
+
+Esse piloto foi testado na base local: seis documentos TNU (um processo) e um
+TRF5; repetir não duplicou versões. Guarda em `documentos_publicos`, com origem
+e Bronze local, e aparece em `/admin/documentos`. Não altera a população
+DataJud, não envia textos à IpeaIA e não anonimiza dados pessoais. Os arquivos
+novos não acompanham o pacote original do Git; execute a coleta no ambiente
+remoto, sem restaurar o banco por cima dos resultados existentes.
+
+Aceita até 50 URLs oficiais explícitas por execução, não IDs inventados nem
+links de autos autenticados. A rota TRF3 também é suportada; o exemplo
+`https://web.trf3.jus.br/acordaos/Acordao/BuscarDocumentoPje/344467700`
+teve timeout na chamada direta local, então disponibilidade nesse ambiente
+ainda não está comprovada. Falha interrompe o lote e fica registrada em
+`coletas`, preservando sucessos anteriores. Não contorna CAPTCHA/anti-robô.
+
 ## Coletar fontes públicas complementares (sem credenciais)
 
 Na raiz do clone remoto, usando o `.env` que aponta para o SQLite existente:

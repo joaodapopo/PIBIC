@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlparse
-from urllib.request import HTTPCookieProcessor, Request, build_opener
+from urllib.request import HTTPCookieProcessor, HTTPRedirectHandler, Request, build_opener
 
 from bs4 import BeautifulSoup
 from sqlalchemy import String, cast, inspect, or_, select
@@ -35,16 +35,35 @@ def check_blocked(text: str) -> None:
         raise SourceBlocked("Fonte exige verificação anti-robô/CAPTCHA; coleta interrompida, sem contorno")
 
 
+class OfficialRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, allowed_hosts):
+        self.allowed_hosts = allowed_hosts
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        url = urlparse(newurl)
+        if (url.scheme != "https" or url.hostname not in self.allowed_hosts
+                or url.port not in (None, 443) or url.username or url.password):
+            raise ValueError("Redirecionamento fora da origem oficial permitida")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class PublicHttp:
-    def __init__(self, timeout: float = 60, interval: float = 1, max_bytes: int = 64 * 1024 * 1024):
+    def __init__(self, timeout: float = 60, interval: float = 1, max_bytes: int = 64 * 1024 * 1024,
+                 allowed_hosts: set[str] | None = None):
         self.timeout, self.interval, self.max_bytes = timeout, interval, max_bytes
-        self.opener = build_opener(HTTPCookieProcessor(CookieJar()))
+        handlers = [HTTPCookieProcessor(CookieJar())]
+        if allowed_hosts is not None:
+            handlers.append(OfficialRedirectHandler(allowed_hosts))
+        self.allowed_hosts = allowed_hosts
+        self.opener = build_opener(*handlers)
         self.last = 0.0
 
     def fetch(self, url: str, data: list[tuple[str, str]] | None = None,
               headers: dict[str, str] | None = None) -> bytes:
         if not url.startswith("https://"):
             raise ValueError("Fonte pública deve usar HTTPS")
+        if self.allowed_hosts is not None and urlparse(url).hostname not in self.allowed_hosts:
+            raise ValueError("URL fora da origem oficial permitida")
         wait = self.interval - (time.monotonic() - self.last)
         if wait > 0:
             time.sleep(wait)

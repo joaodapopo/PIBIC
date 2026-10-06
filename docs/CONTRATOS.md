@@ -1,4 +1,4 @@
-# Contrato de dados BPC Jud — v0.7
+# Contrato de dados BPC Jud — v0.8
 
 Este documento substitui o contrato v0.1 baseado em SQLite/MongoDB.
 
@@ -101,7 +101,7 @@ nome, número curto do STJ, similaridade de texto ou hipótese de recurso.
 | Campo | Tipo lógico | Regra |
 | --- | --- | --- |
 | `id` | bigint PK autogerado | Identificador local |
-| `fonte` | varchar(30) | `stj`, `cjf_trf1`, `trf1_arquivo` |
+| `fonte` | varchar(30) | `stj`, `cjf_trf1`, `trf1_arquivo`, `tnu`, `trf3_jurisprudencia`, `trf5_jurisprudencia` |
 | `documento_id` | varchar(200) | ID estável da origem, nunca posição de página |
 | `hash_conteudo` | varchar(64) | SHA-256 do JSON normalizado do documento |
 | `tipo_documento`, `tribunal` | varchar(100), varchar(30) | Tipo e órgão, quando informados |
@@ -171,8 +171,6 @@ de arquivo local. Divergência rejeita o arquivo completo antes da Silver.
 CAPTCHA/anti-robô será registrado como bloqueio, não contornado e não confundido
 com ausência de dados.
 
-## IA
-
 ### `indicadores_inss_concessoes` — v0.7
 
 Concessões administrativas agregadas, não pessoas únicas, processos ou taxa
@@ -196,6 +194,41 @@ fica exclusivamente na Bronze local ignorada pelo Git.
 Não classificar despacho como concessão judicial sem dicionário e validação,
 nem atribuir despacho a processo. A tabela é aditiva, compatível SQLite/PG;
 cópias antigas sem a tabela ganham tabela vazia, sem dados inventados.
+
+### Documentos HTML publicados TNU/TRF3/TRF5 — v0.8
+
+`documentos-publicados --urls <links oficiais>` aceita até 50 URLs explícitas
+das rotas de documento verificadas. Não inventa IDs, não enumera números de
+documento, não consulta autos autenticados nem contorna anti-robô. Rejeita URL
+com credencial, parâmetro extra/repetido, fragmento ou origem não permitida;
+redirecionamento deve manter HTTPS e o mesmo host. Limita cada HTML a 16 MiB.
+Cada URL tem sua coleta, Bronze original antes do parser e transação Silver;
+falha interrompe o lote sem apagar sucessos anteriores. Vazio temático só é
+aceito após reconhecimento do layout; HTML de erro é falha, não ausência.
+
+Usa as mesmas tabelas `documentos_publicos`/`documento_processos`, sem migração.
+Na TNU, cada `article` tem ID explícito em `header[id=<id>_1]`; esse ID, não
+o ID de pesquisa da URL, é `documento_id`. O CNJ vem exclusivamente de
+`.identificacao_processo` do artigo. No TRF3, o ID vem da URL oficial e o CNJ
+do cabeçalho anterior a RELATÓRIO. No TRF5, o ID vem de `tmp.id_documento`, o
+CNJ do campo `Processo` em `td.grid` e a data do campo `Data de Julgamento`.
+Números citados nos votos/precedentes não criam vínculos. O parser só guarda
+documentos com termos temáticos explícitos BPC/LOAS/benefício assistencial;
+isso indica corpus candidato, não prova recorte ou concessão inicial.
+
+`texto` conserva o texto publicado normalizado por HTML, sem scripts/estilos;
+rodapés de assinatura da TNU e o horário de impressão fora do conteúdo TRF5
+não integram o texto analítico, mas permanecem nos bytes Bronze. Não garante
+autos completos, anonimização ou classificação do mérito. O campo `decisao`
+fica nulo; `ementa` só é preenchida pela seção explicitamente rotulada TRF5.
+`payload` registra ID, CNJ, texto, tipo publicado, ementa, data explícita,
+`extracao_texto=html_publicado`, `versao_parser=publicados_html_v1`.
+Hash de versão usa esse payload, não o horário variável da página inteira.
+Nenhum processo novo é criado; só CNJ do cabeçalho idêntico ao já existente
+permite vínculo. Corpus permanece local, fora do Git e sem envio automático
+à IpeaIA. A triagem atual continua DataJud + TPU com resumo natural.
+
+## IA
 
 ### Execução portátil sem Docker (05/10/2026)
 
@@ -288,13 +321,19 @@ confirmado. Não atribuir esses motivos a um processo individual.
 Decisão atual: continuar a triagem de metadados com contexto TPU e resumo
 natural para a amostra existente. Foram implementados e testados com respostas
 reais os coletores de espelhos STJ, pesquisa CJF/TRF1/JEF1 e agregados INSS.
-Na cópia SQLite local, o piloto gravou 5 documentos TRF1, 5 JEF1 e 1 STJ,
-sem CNJ coincidente com a amostra (zero vínculos). O arquivo agosto/2026 INSS
+No piloto inicial foram gravados 5 documentos TRF1, 5 JEF1 e 1 STJ,
+sem CNJ coincidente com a amostra nessa etapa. Após as complementações,
+a cópia local tem 46 versões documentais: 11 CJF, 21 STJ, 7 arquivo TRF1,
+6 TNU e 1 TRF5. Há três vínculos de versões a um único processo BPC do Piauí,
+fora DF/RIDE; nenhum novo vínculo documental TNU/TRF5. Esses números são
+versões de documentos, não processos adicionais nem cobertura de autos.
+A tentativa direta TRF3 ficou `falhou` por timeout, não `sem_resultado`.
+O arquivo agosto/2026 INSS
 foi lido integralmente: 882.589 linhas, 3.258 indeferimentos espécie 87 e 389
 espécie 88 no DF, em 24 agregados. Repetição STJ não duplicou versões.
 NLP/Métricas ainda não podem atribuir motivos ou desfechos aos 2.584 processos
-originais por essas coletas: os textos estão em corpus separado, sem vínculo
-e sem envio automático à IpeaIA. Índices de ganho e hipóteses de motivação
+originais por essas coletas: os textos estão em corpus separado, com vínculo
+restrito ao caso Piauí e sem envio automático à IpeaIA. Índices de ganho e hipóteses de motivação
 exigem conteúdo do próprio processo, recorte e validação humana.
 
 O arquivo TRF1 oscilou entre desafio anti-robô e acesso normal. O JavaScript
@@ -411,6 +450,8 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Integrar documentos HTML publicados TNU/TRF3/TRF5 por URLs oficiais explícitas, usando o corpus versionado existente. | Coleta real TNU: seis documentos; TRF5: um documento. Reexecução: zero versões novas. CNJ só do cabeçalho/campo Processo; população original permanece 2.584. Textos locais, não anonimizados nem enviados à IA. Contrato v0.8 sem migração; descoberta automática de links pendente. TRF3 teve timeout e coleta `falhou`, sem dados gravados dessa fonte. |
+| 06/10/2026 | Pesquisa adicional confirmou exemplos públicos de texto decisório na TNU, TRF3 e TRF5; priorizar piloto textual complementar, sem ampliar silenciosamente a amostra. | CNJs reais TNU `5006875-14.2022.4.04.7005` e TRF3 `5000929-32.2025.4.03.6343`, com relatório/voto acessíveis. Fontes e links em `FONTES_ABERTAS.md`; ainda não importados. Não comprovam cobertura DF/RIDE nem API de lote. Triagem atual continua DataJud + TPU, resumo natural v1.2 e revisão pendente; não envia esses textos nem determina motivo/desfecho individual. |
 | 06/10/2026 | Integrar concessões públicas INSS como contexto agregado por competência/UF/espécie/despacho, em tabela separada. | Leitura integral agosto/2026: 848.996 linhas; DF: 1.495 concessões espécie 87 e 667 espécie 88, em 8 grupos. Não são processos, pessoas únicas nem taxa de procedência. Microdados só na Bronze local; sem vínculo CNJ nem envio à IA. Contrato v0.7/migração aditiva 0007. |
 | 06/10/2026 | Extrair preliminarmente texto de DOC legado em Python, sem Office/macros/rede e sem sobrescrever originais. | Dois arquivos reais convertidos: ementa BPC (3.217 caracteres) e decisão de controle (5.614). Leitor/pipeline/hash registrados; revisão humana e integridade textual não comprovadas. TIFF/OCR pendente. Não altera recorte nem envia textos à IA. |
 | 06/10/2026 | Implementar download do arquivo TRF1 após localização positiva e confirmação do CNJ na listagem. | Controle positivo oficial e um BPC de 2006 no Piauí foram localizados; certidão/ementa deste último geraram dois vínculos reais com a base. Ele fica fora DF/RIDE. Texto simples lido; DOC binário/OCR TIFF pendentes, sem envio à IA. Originais preservados localmente. |

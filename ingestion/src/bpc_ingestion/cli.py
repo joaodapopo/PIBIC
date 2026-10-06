@@ -7,6 +7,7 @@ import math
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from urllib.parse import urlparse
 
 from .bronze import BronzeWriter
 from .archive_text import converted_document, pending_archive_text
@@ -26,6 +27,7 @@ from .ipeaia import (IpeaIaClient, PROMPT_VERSION, RejectedIpeaResponse,
 from .models import ExtracaoIa, IndicadorInssConcessao, IndicadorInssIndeferimento, Processo
 from .persistence import agora_iso
 from .postgres_store import PostgresStore
+from .published_documents import official_url, published_documents
 from .public_sources import (ArchiveClient, CjfClient, PublicHttp, SourceBlocked, StjClient, bpc_text, ensure_document_tables,
                              cjf_partition, pending_cjf_sample, preserve_raw, store_document, stj_document)
 from .sqlite_store import SqliteStore
@@ -101,6 +103,10 @@ def construir_parser() -> argparse.ArgumentParser:
     sources.add_argument("--base", choices=("TRF1", "JEF1"), default="TRF1")
     sources.add_argument("--timeout", type=float, default=60)
     sources.add_argument("--raw-dir", default="data/raw")
+    published = commands.add_parser("documentos-publicados", help="Baixa HTML oficial TNU/TRF3/TRF5 por links publicados")
+    published.add_argument("--urls", nargs="+", required=True)
+    published.add_argument("--timeout", type=float, default=120)
+    published.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
     sample = commands.add_parser("cjf-amostra", help="Busca textos públicos por CNJ da amostra existente de Brasília")
     sample.add_argument("--limit", type=int, default=10, help="Número de processos a consultar, 1..50")
     sample.add_argument("--base", choices=("TRF1", "JEF1"), default="JEF1")
@@ -475,6 +481,39 @@ def collect_public_documents(args: argparse.Namespace, settings: Settings) -> in
     return 0
 
 
+def collect_published_documents(args: argparse.Namespace, settings: Settings) -> int:
+    if not 1 <= len(args.urls) <= 50 or not math.isfinite(args.timeout) or not 0 < args.timeout <= 600:
+        raise ValueError("Use 1..50 URLs e timeout positivo até 600 segundos")
+    targets = list(dict.fromkeys(official_url(url) for url in args.urls))
+    store = PostgresStore(settings.database_url)
+    try:
+        ensure_document_tables(store.engine)
+        clients = {}
+        for source, identifier, url in targets:
+            run = store.start_collection(source, identifier, {"url": url, "versao_parser": "publicados_html_v1"})
+            raw = None
+            try:
+                host = urlparse(url).hostname
+                if host not in clients:
+                    clients[host] = PublicHttp(timeout=args.timeout, max_bytes=16 * 1024 * 1024,
+                                               allowed_hosts={host})
+                http = clients[host]
+                body = http.fetch(url)
+                raw = preserve_raw(body, args.raw_dir, source, run, "html")
+                documents = published_documents(body, url)
+                with store.Session.begin() as session:
+                    inserted = sum(int(store_document(session, doc, run, raw)) for doc in documents)
+                store.finish_collection(run, "concluida" if documents else "sem_resultado", len(documents), raw_file=str(raw))
+                LOGGER.info("%s: %d documentos BPC publicados, %d versões novas; sem envio à IA", source, len(documents), inserted)
+            except Exception as exc:
+                store.finish_collection(run, "bloqueada" if isinstance(exc, SourceBlocked) else "falhou", 0,
+                                        raw_file=str(raw) if raw else None, error=str(exc))
+                raise RuntimeError(f"Documento {source} {identifier}: {exc}; coletas anteriores preservadas") from exc
+    finally:
+        store.close()
+    return 0
+
+
 def collect_cjf_sample(args: argparse.Namespace, settings: Settings) -> int:
     if not 1 <= args.limit <= 50 or not 1 <= args.paginas <= 20 or not 0 < args.timeout <= 600:
         raise ValueError("Use limit 1..50, paginas 1..20 e timeout positivo até 600")
@@ -588,6 +627,8 @@ def executar(argv: Sequence[str] | None = None) -> int:
         return ipeaia_triage(args, settings)
     if args.command == "documentos-publicos":
         return collect_public_documents(args, settings)
+    if args.command == "documentos-publicados":
+        return collect_published_documents(args, settings)
     if args.command == "cjf-amostra":
         return collect_cjf_sample(args, settings)
     if args.command == "converter-arquivo-trf1":
