@@ -305,3 +305,55 @@ class ExtracaoIa(Base):
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class DocumentoPublico(Base):
+    __tablename__ = "documentos_publicos"
+    __table_args__ = (UniqueConstraint("fonte", "documento_id", "hash_conteudo", name="uq_documento_publico_versao"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    fonte: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    documento_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    hash_conteudo: Mapped[str] = mapped_column(String(64), nullable=False)
+    tipo_documento: Mapped[str | None] = mapped_column(String(100))
+    tribunal: Mapped[str | None] = mapped_column(String(30))
+    numero_origem: Mapped[str | None] = mapped_column(Text)
+    numeros_cnj: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    data_publicacao: Mapped[date | None] = mapped_column(Date)
+    data_decisao: Mapped[date | None] = mapped_column(Date)
+    ementa: Mapped[str | None] = mapped_column(Text)
+    decisao: Mapped[str | None] = mapped_column(Text)
+    texto: Mapped[str | None] = mapped_column(Text)
+    url_origem: Mapped[str] = mapped_column(Text, nullable=False)
+    recurso_url: Mapped[str] = mapped_column(Text, nullable=False)
+    arquivo_bruto: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    coleta_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("coletas.id"), nullable=False)
+    coletado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DocumentoProcesso(Base):
+    __tablename__ = "documento_processos"
+
+    documento_id: Mapped[int] = mapped_column(ForeignKey("documentos_publicos.id"), primary_key=True)
+    processo_id: Mapped[int] = mapped_column(ForeignKey("processos.id"), primary_key=True)
+    criterio: Mapped[str] = mapped_column(String(40), nullable=False, default="cnj_explicito")
+
+
+class IndicadorInssIndeferimento(Base):
+    __tablename__ = "indicadores_inss_indeferimentos"
+    __table_args__ = (UniqueConstraint("fonte", "competencia", "uf", "especie", "motivo", "hash_arquivo",
+                                       name="uq_inss_indeferimento_versao"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    fonte: Mapped[str] = mapped_column(String(30), nullable=False)
+    competencia: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    uf: Mapped[str] = mapped_column(String(2), nullable=False)
+    especie: Mapped[int] = mapped_column(Integer, nullable=False)
+    motivo: Mapped[str] = mapped_column(Text, nullable=False)
+    quantidade: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    recurso_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    recurso_url: Mapped[str] = mapped_column(Text, nullable=False)
+    arquivo_bruto: Mapped[str] = mapped_column(Text, nullable=False)
+    hash_arquivo: Mapped[str] = mapped_column(String(64), nullable=False)
+    coleta_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("coletas.id"), nullable=False)
+    coletado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

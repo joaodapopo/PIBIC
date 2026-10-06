@@ -116,6 +116,43 @@ modelo e versão; versões anteriores são preservadas e podem ser retriadas.
 Cada sucesso é salvo imediatamente; erro interrompe o lote, mas mantém sucessos
 anteriores. Não repetir em loop um processo rejeitado sem avaliar o diagnóstico.
 
+## Coletar fontes públicas complementares (sem credenciais)
+
+Na raiz do clone remoto, usando o `.env` que aponta para o SQLite existente:
+
+```powershell
+git pull
+.\.venv\Scripts\python.exe -m pip install --upgrade ./ingestion
+.\.venv\Scripts\python.exe -m bpc_ingestion documentos-publicos --fonte stj --recursos 2 --limit 50
+.\.venv\Scripts\python.exe -m bpc_ingestion documentos-publicos --fonte cjf --base TRF1 --query LOAS --paginas 2 --limit 50
+.\.venv\Scripts\python.exe -m bpc_ingestion documentos-publicos --fonte cjf --base JEF1 --query LOAS --paginas 2 --limit 50
+.\.venv\Scripts\python.exe -m bpc_ingestion inss-indeferimentos --competencia 202608 --uf DF
+.\.venv\Scripts\python.exe -m bpc_ingestion arquivo-trf1 --numero 1053078-37.2022.4.01.3400
+```
+
+Os comandos criam somente as novas tabelas aditivas; não restauram nem apagam
+processos ou extrações. No PostgreSQL, aplicar a migração Alembic 0006 no fluxo
+normal do projeto (o ambiente Docker local deve estar ligado). No SQLite, não
+executar migrações PostgreSQL.
+
+Abra `http://localhost:8000/admin/documentos` (reinicie o servidor após atualizar).
+O corpus complementar NÃO é a população DF/RIDE: documentos sem CNJ explícito
+coincidente ficam separados. A IpeaIA de metadados ainda não recebe esses textos.
+Os agregados INSS não são processos e não podem fornecer um motivo individual.
+
+O INSS lê a planilha inteira antes de gravar os agregados (um arquivo mensal
+grande pode levar minutos). A Bronze fica em `data/raw/inss_indeferimentos/`.
+Se precisar repetir a agregação de um arquivo já baixado, use `--arquivo`
+com o caminho XLSX.gz impresso no log e a mesma competência; todos os períodos
+das linhas são conferidos. Não versionar essa planilha: contém microdados.
+
+Limites: STJ até 24 recursos JSON por conjunto, sem ZIP histórico por enquanto;
+CJF até 20 páginas e 500 documentos por execução, respeitando intervalo entre
+requisições. Para mudar a cobertura, selecione termos/períodos sem supor que isso
+representa todos os processos. `arquivo-trf1` só consulta disponibilidade;
+`existeProcesso:false` não significa inexistência no DataJud. Anti-robô resulta
+em `bloqueada`, nunca é contornado.
+
 ## Atualizar a cópia no futuro
 
 A origem PostgreSQL permanece na máquina local. O módulo

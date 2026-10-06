@@ -14,11 +14,25 @@ from bpc_ingestion.cli import ipeaia_triage
 from bpc_ingestion.config import Settings
 from bpc_ingestion.database import make_engine
 from bpc_ingestion.ipeaia import RejectedIpeaResponse, pending_processes, save_rejected_response
-from bpc_ingestion.models import Assunto, Base, ExtracaoIa, Processo, ReferenciaTpu, RegistroAssunto, RegistroDatajud
+from bpc_ingestion.models import (Assunto, Base, DocumentoProcesso, DocumentoPublico, ExtracaoIa,
+    IndicadorInssIndeferimento, Processo, ReferenciaTpu, RegistroAssunto, RegistroDatajud)
 from bpc_ingestion.portable import export_package, initialize
 
 
 class PortableDatabaseTest(unittest.TestCase):
+    def test_export_legacy_application_copy_adds_empty_complement_tables(self):
+        source = make_engine("sqlite://")
+        Base.metadata.create_all(source)
+        try:
+            for model in (DocumentoProcesso, DocumentoPublico, IndicadorInssIndeferimento):
+                model.__table__.drop(source)
+            with tempfile.TemporaryDirectory() as work:
+                counts = export_package(source, Path(work) / "old-copy.gz")
+                for name in ("documentos_publicos", "documento_processos", "indicadores_inss_indeferimentos"):
+                    self.assertEqual(counts[name], 0)
+        finally:
+            source.dispose()
+
     def test_copy_api_filters_and_ai_persistence(self):
         source = make_engine("sqlite://")
         Base.metadata.create_all(source)

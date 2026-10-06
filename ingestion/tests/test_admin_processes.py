@@ -46,13 +46,14 @@ class AdminProcessApiTest(unittest.TestCase):
             data_ajuizamento=None, data_ultima_atualizacao=None, coletado_em=None,
             payload={"numeroProcesso": "10446132820214013900"},
         )
-        session.scalars.side_effect = [[record], [], [], [], []]
+        session.scalars.side_effect = [[record], [], [], [], [], []]
         session.execute.side_effect = [[], []]
         session.get.return_value = None
         detail = admin_process_detail("10446132820214013900", session=session)
         self.assertEqual(detail["registros_datajud"][0]["tribunal"], "TRF1")
         self.assertEqual(detail["registros_datajud"][0]["payload_original"], record.payload)
         self.assertEqual(detail["extracoes_ia"], [])
+        self.assertEqual(detail["documentos_publicos"], [])
         self.assertIsNone(detail["consulta_comunica"])
 
     def test_detail_rejects_invalid_number(self):

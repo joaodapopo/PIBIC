@@ -18,11 +18,14 @@ from .datajud import (
     DatajudClient, normalizar_hit, normalizar_processo, query_fingerprint, query_manifest,
 )
 from .inss import InssCatalogClient
+from .inss_benefits import InssBenefitsClient, UF_NAMES, aggregate_xlsx, store_aggregates
 from .ipeaia import (IpeaIaClient, PROMPT_VERSION, RejectedIpeaResponse,
                     load_process_input, pending_processes, save_rejected_response)
-from .models import ExtracaoIa, Processo
+from .models import ExtracaoIa, IndicadorInssIndeferimento, Processo
 from .persistence import agora_iso
 from .postgres_store import PostgresStore
+from .public_sources import (ArchiveClient, CjfClient, PublicHttp, SourceBlocked, StjClient, bpc_text, ensure_document_tables,
+                             preserve_raw, store_document, stj_document)
 from .sqlite_store import SqliteStore
 from .transparencia import TransparenciaClient, meses_no_periodo, normalizar_indicador
 
@@ -85,6 +88,25 @@ def construir_parser() -> argparse.ArgumentParser:
     triagem.add_argument("--max-movimentos", type=int, default=100)
     triagem.add_argument("--timeout", type=float, help="Tempo limite de rede em segundos; padrao IPEAIA_TIMEOUT_SECONDS (600)")
     triagem.add_argument("--executar", action="store_true", help="Envia à API e grava; sem isto, só pré-visualiza")
+    sources = commands.add_parser("documentos-publicos", help="Coleta corpus complementar oficial com origem")
+    sources.add_argument("--fonte", required=True, choices=("stj", "cjf"))
+    sources.add_argument("--limit", type=int, default=20)
+    sources.add_argument("--recursos", type=int, default=2, help="Arquivos JSON recentes por conjunto STJ")
+    sources.add_argument("--paginas", type=int, default=1, help="Páginas CJF (30 documentos por página)")
+    sources.add_argument("--conjuntos", nargs="+", default=["espelhos-de-acordaos-primeira-turma", "espelhos-de-acordaos-segunda-turma"])
+    sources.add_argument("--query", default='"benefício assistencial"')
+    sources.add_argument("--base", choices=("TRF1", "JEF1"), default="TRF1")
+    sources.add_argument("--timeout", type=float, default=60)
+    sources.add_argument("--raw-dir", default="data/raw")
+    benefits = commands.add_parser("inss-indeferimentos", help="Agrega motivos BPC por competência e UF")
+    benefits.add_argument("--competencia", type=int, required=True)
+    benefits.add_argument("--uf", default="DF")
+    benefits.add_argument("--timeout", type=float, default=180)
+    benefits.add_argument("--raw-dir", default="data/raw")
+    benefits.add_argument("--arquivo", type=Path, help="XLSX ou XLSX.gz local do mesmo recurso mensal")
+    commands.add_parser("verificar-arquivo-trf1", help="Verifica acesso público sem contornar anti-robô")
+    archive = commands.add_parser("arquivo-trf1", help="Consulta disponibilidade por CNJ no arquivo público")
+    archive.add_argument("--numero", nargs="+", required=True)
     return parser
 
 
@@ -377,6 +399,101 @@ def catalog_inss(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def collect_public_documents(args: argparse.Namespace, settings: Settings) -> int:
+    if not 1 <= args.limit <= 500 or not 1 <= args.recursos <= 24 or not 1 <= args.paginas <= 20 or not 0 < args.timeout <= 600:
+        raise ValueError("Use limit 1..500, recursos 1..24 e timeout 0..600")
+    store = PostgresStore(settings.database_url)
+    run = None
+    inserted = observed = 0
+    source = "stj" if args.fonte == "stj" else "cjf_trf1"
+    try:
+        ensure_document_tables(store.engine)
+        run = store.start_collection(source, args.base if args.fonte == "cjf" else "bpc", vars(args))
+        http = PublicHttp(timeout=args.timeout)
+        batches = []
+        if args.fonte == "stj":
+            client = StjClient(http)
+            for name in args.conjuntos:
+                package = client.package(name)
+                # Catálogo também é evidência, não substituir por lista inventada.
+                preserve_raw(client.package_raw, Path(args.raw_dir), source, run, "catalogo.json")
+                for resource in client.recent_json(package, args.recursos):
+                    batches.append(resource)
+        else:
+            batches = CjfClient(http).pages(args.query, args.base, args.paginas)
+        for resource in batches:
+            if observed >= args.limit:
+                break
+            if args.fonte == "stj":
+                body, items = client.records(resource)
+                raw = preserve_raw(body, Path(args.raw_dir), source, run, "json")
+                documents = [stj_document(item, resource["url"]) for item in items if bpc_text(item)]
+            else:
+                original, body = resource
+                raw = preserve_raw(original, Path(args.raw_dir), source, run, "html" if original == body else "xml")
+                documents = CjfClient.documents(body, args.base)
+            with store.Session.begin() as session:
+                for document in documents[:args.limit-observed]:
+                    inserted += int(store_document(session, document, run, raw))
+                    observed += 1
+            LOGGER.info("%s: %d documentos observados, %d versões novas", source, observed, inserted)
+        store.finish_collection(run, "concluida", observed)
+    except Exception as exc:
+        if run:
+            store.finish_collection(run, "bloqueada" if isinstance(exc, SourceBlocked) else "falhou", observed, error=str(exc))
+        raise RuntimeError(f"Falha na fonte {source}: {exc}") from exc
+    finally:
+        store.close()
+    return 0
+
+
+def collect_inss_benefits(args: argparse.Namespace, settings: Settings) -> int:
+    import gzip
+    from .models import Coleta
+    import uuid
+    if args.uf.upper() not in UF_NAMES or not math.isfinite(args.timeout) or args.timeout <= 0:
+        raise ValueError("Informe uma UF brasileira válida e timeout positivo/finito")
+    store = PostgresStore(settings.database_url)
+    run = None
+    try:
+        ensure_document_tables(store.engine)
+        IndicadorInssIndeferimento.__table__.create(store.engine, checkfirst=True)
+        client = InssBenefitsClient(PublicHttp(timeout=args.timeout, max_bytes=128 * 1024 * 1024))
+        package = client.package(client.DATASET)
+        resource = client.monthly_resource(package, args.competencia)
+        parameters = {"competencia": args.competencia, "uf": args.uf.upper(), "recurso_id": resource["id"],
+                      "recurso_url": resource["url"], "arquivo_local": str(args.arquivo) if args.arquivo else None}
+        run = store.start_collection("inss_indeferimentos", str(args.competencia), parameters)
+        preserve_raw(client.package_raw, Path(args.raw_dir), "inss_indeferimentos", run, "catalogo.json")
+        LOGGER.info("INSS: baixando/lendo recurso mensal %s, UF=%s; nenhuma linha pessoal vai à Silver",
+                    args.competencia, args.uf)
+        if args.arquivo:
+            opener = gzip.open if args.arquivo.suffix == ".gz" else open
+            with opener(args.arquivo, "rb") as source:
+                body = source.read(128 * 1024 * 1024 + 1)
+            if len(body) > 128 * 1024 * 1024:
+                raise ValueError("Arquivo excede 128 MiB")
+        else:
+            body = client.http.fetch(resource["url"])
+        raw = preserve_raw(body, Path(args.raw_dir), "inss_indeferimentos", run, "xlsx")
+        LOGGER.info("INSS: Bronze preservada em %s; agregando a planilha completa...", raw)
+        counts, quality = aggregate_xlsx(body, args.uf, args.competencia)
+        with store.Session.begin() as session:
+            inserted = store_aggregates(session, counts, resource, args.competencia, body, raw, run)
+            collection = session.get(Coleta, uuid.UUID(run))
+            collection.parametros = dict(parameters, qualidade=quality)
+        store.finish_collection(run, "concluida", sum(counts.values()), raw_file=str(raw))
+        LOGGER.info("INSS: %d linhas lidas, %d indeferimentos BPC selecionados, %d agregados novos",
+                    quality["linhas_lidas"], quality["linhas_selecionadas"], inserted)
+    except Exception as exc:
+        if run:
+            store.finish_collection(run, "falhou", 0, error=str(exc))
+        raise RuntimeError(f"Falha em indeferimentos INSS: {exc}") from exc
+    finally:
+        store.close()
+    return 0
+
+
 def executar(argv: Sequence[str] | None = None) -> int:
     args = construir_parser().parse_args(argv)
     settings = Settings.from_env()
@@ -396,6 +513,46 @@ def executar(argv: Sequence[str] | None = None) -> int:
         return ipeaia_models(settings)
     if args.command == "ipeaia-triagem":
         return ipeaia_triage(args, settings)
+    if args.command == "documentos-publicos":
+        return collect_public_documents(args, settings)
+    if args.command == "inss-indeferimentos":
+        return collect_inss_benefits(args, settings)
+    if args.command == "verificar-arquivo-trf1":
+        store = PostgresStore(settings.database_url)
+        run = store.start_collection("trf1_arquivo", "acesso", {"url": "https://arquivo.trf1.jus.br/"})
+        try:
+            body = PublicHttp().fetch("https://arquivo.trf1.jus.br/")
+            raw = preserve_raw(body, Path("data/raw"), "trf1_arquivo", run, "html")
+            store.finish_collection(run, "acessivel", 0, raw_file=str(raw))
+            LOGGER.info("Arquivo TRF1 acessível; formulário preservado. Não foram coletados documentos.")
+        except Exception as exc:
+            store.finish_collection(run, "bloqueada" if isinstance(exc, SourceBlocked) else "falhou", 0, error=str(exc))
+            raise RuntimeError(f"Arquivo TRF1: {exc}") from exc
+        finally:
+            store.close()
+        return 0
+    if args.command == "arquivo-trf1":
+        from .public_sources import cnj_number
+        if len(args.numero) > 50 or any(cnj_number(number) is None for number in args.numero):
+            raise ValueError("Informe até 50 números CNJ completos")
+        store = PostgresStore(settings.database_url)
+        run = store.start_collection("trf1_arquivo", "disponibilidade", {"numeros": args.numero})
+        found = 0
+        try:
+            client = ArchiveClient()
+            for number in args.numero:
+                body, lookup = client.lookup(number)
+                raw = preserve_raw(body, Path("data/raw"), "trf1_arquivo", run, "json")
+                found += int(lookup["existeProcesso"])
+                LOGGER.info("Arquivo TRF1 %s: %s; resposta original em %s", number,
+                            "localizado (documentos ainda não baixados)" if lookup["existeProcesso"] else "não localizado na fonte", raw)
+            store.finish_collection(run, "localizado" if found else "sem_resultado", found)
+        except Exception as exc:
+            store.finish_collection(run, "bloqueada" if isinstance(exc, SourceBlocked) else "falhou", found, error=str(exc))
+            raise RuntimeError(f"Arquivo TRF1: {exc}") from exc
+        finally:
+            store.close()
+        return 0
     raise AssertionError(f"Comando inesperado: {args.command}")
 
 

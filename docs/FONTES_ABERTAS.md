@@ -126,3 +126,38 @@ nosso recorte. Até testar/importar documentos com vínculo e origem, a triagem
 permanece DataJud + TPU, agora com resumo natural, e não identifica motivo da
 judicialização ou resultado individual. Ver contrato v1.2 em `CONTRATOS.md` e
 comando de lote em `SEM_DOCKER.md`.
+
+## Implementação e evidência de coleta — 06/10/2026
+
+- **CJF/TRF1/JEF1:** formulário público JSF (`formulario:textoLivre`,
+  `formulario:selectTiposDocumento`, checkbox da base e ViewState), cookies de
+  sessão e paginação AJAX. Acórdãos/decisões publicados ficam em
+  `documentos_publicos`, com ID da origem, campos, texto, hashes e Bronze HTML/XML.
+  Piloto persistiu 5 TRF1 e 5 JEF1. Duas páginas JEF1 retornaram 30 + 30 IDs sem
+  sobreposição. HTTP 504 ocorreu em uma consulta mais pesada e ficou como erro,
+  não ausência de dados. Nenhum documento foi vinculado por similaridade.
+- **STJ:** download de recursos JSON recentes selecionados pelo CKAN, filtrados
+  por termos explícitos BPC/LOAS/benefício assistencial; ID da origem e conteúdo
+  são versionados. JSON agosto/2026 da Segunda Turma retornou 1 candidato, gravado;
+  repetir gravou zero versões novas. O número curto `3126923` não foi convertido
+  nem unido a CNJ. Histórico ZIP ainda não é baixado pelo coletor atual.
+- **INSS:** recurso oficial de agosto/2026 (XLSX, 63.610.786 bytes) lido integralmente
+  em modo streaming. Título/cabeçalho e par de colunas espécie código/descrição
+  foram tratados pelo layout observado. 882.589 linhas lidas; DF: 3.258 espécie 87,
+  389 espécie 88, em 24 grupos de motivo. Só agregados são gravados na Silver.
+  XLS histórico e conjuntos de concessões ainda requerem importadores próprios.
+- **Arquivo TRF1:** acesso variou entre Cloudflare e formulário acessível. O endpoint
+  público usado pelo próprio script `js/pages/index.js` foi testado:
+  `POST /localiza_processo.php`, campo `ProcInclui` com CNJ sem pontuação. Sem
+  credencial. CNJs testados (2022, 2009, 2013) retornaram `existeProcesso:false`.
+  CLI `arquivo-trf1` guarda respostas e consulta disponibilidade; download e
+  conversão DOC/TIFF quando houver positivo ainda pendentes. Não houve bypass,
+  envio de e-mail automático ou uso de credencial institucional.
+- **MCP DeHor:** o [README atual](https://github.com/DeHor-Labs/mcp-juridico-brasil)
+  descreve DataJud e ferramentas de monitoramento/prazos, não nova base de inteiro
+  teor. Não foi instalado: reutilizar o que já temos não resolve cobertura textual.
+
+O pacote SQLite no Git permanece o original; os dados novos estão só em
+`data/bpc-remote.sqlite` local e são reproduzíveis pelos comandos de coleta no
+ambiente remoto. Não enviar os textos/microdados brutos ao Git nem à API IA
+automaticamente. O painel `/admin/documentos` exibe corpus e agregados separados.

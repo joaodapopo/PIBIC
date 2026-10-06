@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import exists, func, select, text, update
+from sqlalchemy import exists, func, inspect, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 from dotenv import load_dotenv
 from .database import make_engine
@@ -22,7 +22,10 @@ from .models import (
     ComunicacaoPje,
     ConsultaPje,
     DocumentoChunk,
+    DocumentoProcesso,
+    DocumentoPublico,
     ExtracaoIa,
+    IndicadorInssIndeferimento,
     Movimento,
     Processo,
     ReferenciaTpu,
@@ -41,6 +44,16 @@ engine = make_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 STATIC_DIR = Path(__file__).parent / "static"
 Tribunal = Literal["TRF1", "TRF2", "TRF3", "TRF4", "TRF5", "TRF6", "STJ"]
+
+
+def public_document_json(item: DocumentoPublico) -> dict[str, Any]:
+    return {"id": item.id, "fonte": item.fonte, "documento_id": item.documento_id,
+            "tipo_documento": item.tipo_documento, "tribunal": item.tribunal,
+            "numero_origem": item.numero_origem, "numeros_cnj": item.numeros_cnj,
+            "ementa": item.ementa, "decisao": item.decisao, "texto": item.texto,
+            "data_publicacao": item.data_publicacao, "data_decisao": item.data_decisao,
+            "url_origem": item.url_origem, "recurso_url": item.recurso_url,
+            "hash_conteudo": item.hash_conteudo, "coletado_em": item.coletado_em}
 
 
 @asynccontextmanager
@@ -188,6 +201,53 @@ def dashboard() -> FileResponse:
 @app.get("/admin/processos", include_in_schema=False)
 def process_admin() -> FileResponse:
     return FileResponse(STATIC_DIR / "processos.html")
+
+
+@app.get("/admin/documentos", include_in_schema=False)
+def public_documents_page():
+    return FileResponse(STATIC_DIR / "documentos.html")
+
+
+@app.get("/admin/api/documentos")
+def public_documents_list(session: Annotated[Session, Depends(get_session)],
+                          fonte: str | None = None, texto: str | None = None,
+                          limit: int = Query(20, ge=1, le=50), offset: int = Query(0, ge=0)):
+    if not inspect(session.get_bind()).has_table("documentos_publicos"):
+        return {"total": 0, "itens": [], "schema_disponivel": False}
+    filters = []
+    if fonte:
+        filters.append(DocumentoPublico.fonte == fonte)
+    if texto:
+        term = f"%{texto}%"
+        filters.append((DocumentoPublico.ementa.ilike(term)) | (DocumentoPublico.decisao.ilike(term))
+                       | (DocumentoPublico.texto.ilike(term)) | (DocumentoPublico.numero_origem.ilike(term)))
+    total = session.scalar(select(func.count()).select_from(DocumentoPublico).where(*filters))
+    rows = session.scalars(select(DocumentoPublico).where(*filters).order_by(DocumentoPublico.id.desc())
+                           .limit(limit).offset(offset))
+    return {"total": total, "itens": [public_document_json(row) for row in rows], "schema_disponivel": True}
+
+
+@app.get("/admin/api/indeferimentos-inss")
+def inss_indicators(session: Annotated[Session, Depends(get_session)],
+                    competencia: int | None = None, uf: str = "DF"):
+    if not inspect(session.get_bind()).has_table("indicadores_inss_indeferimentos"):
+        return {"total": 0, "itens": [], "schema_disponivel": False}
+    query = select(IndicadorInssIndeferimento).where(IndicadorInssIndeferimento.uf == uf.upper())
+    if competencia:
+        query = query.where(IndicadorInssIndeferimento.competencia == competencia)
+    rows = session.scalars(query.order_by(IndicadorInssIndeferimento.coletado_em.desc(), IndicadorInssIndeferimento.id.desc()))
+    latest = {}
+    selected = []
+    for row in rows:
+        key = (row.competencia, row.uf)
+        latest.setdefault(key, row.hash_arquivo)
+        if row.hash_arquivo == latest[key]:
+            selected.append({"competencia": row.competencia, "uf": row.uf, "especie": row.especie,
+                             "motivo": row.motivo, "quantidade": row.quantidade,
+                             "hash_arquivo": row.hash_arquivo, "recurso_url": row.recurso_url})
+    return {"total": len(selected), "itens": selected, "schema_disponivel": True,
+            "unidade": "indeferimentos administrativos, não processos/pessoas únicas",
+            "versao": "último snapshot coletado por competência e UF, sem somar versões"}
 
 
 @app.get("/health")
@@ -354,8 +414,14 @@ def admin_process_detail(
         select(DocumentoChunk).where(DocumentoChunk.processo_id == process.id)
         .order_by(DocumentoChunk.comunicacao_id, DocumentoChunk.numero_chunk)
     ))
+    public_documents = []
+    if inspect(session.get_bind()).has_table("documentos_publicos"):
+        public_documents = list(session.scalars(select(DocumentoPublico)
+            .join(DocumentoProcesso, DocumentoProcesso.documento_id == DocumentoPublico.id)
+            .where(DocumentoProcesso.processo_id == process.id).order_by(DocumentoPublico.id.desc())))
     return {
         "numero_processo": process.numero_processo,
+        "documentos_publicos": [public_document_json(item) for item in public_documents],
         "registros_datajud": [
             {
                 "id": record.id,

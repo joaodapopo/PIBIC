@@ -62,6 +62,7 @@
 <body>
   <header>
     <a href="/">← Voltar ao painel de coleta</a>
+    <a href="/admin/documentos">Documentos públicos complementares</a>
     <h1>Explorador de processos</h1>
     <p>Veja o que foi coletado, de qual fonte veio e quais análises existem para cada processo.</p>
   </header>
@@ -179,6 +180,7 @@
       });
 
       const extractionSection = add(root, 'section', null, 'section'); add(extractionSection, 'h3', 'Dados extraídos por IA');
+      (data.documentos_publicos || []).forEach(item => {const card = add(extractionSection, 'article', null, 'entry'); add(card, 'h3', `Documento público vinculado por CNJ · ${item.fonte}`); add(card, 'p', 'Vínculo de identidade, não confirmação de concessão inicial ou resultado.'); add(card, 'div', item.ementa || item.decisao || item.texto || 'Sem texto publicado', 'text');});
       if (!data.extracoes_ia.length) empty(extractionSection, 'Nenhuma extração de IA registrada. Ainda não há classificação de decisão ou resultado jurídico no banco para este processo.');
       data.extracoes_ia.forEach(item => {
         const card = add(extractionSection, 'article', null, 'entry'); add(card, 'h3', `${item.tipo_extracao} · ${item.status_validacao}`);

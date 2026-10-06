@@ -1,4 +1,4 @@
-# Contrato de dados BPC Jud — v0.5
+# Contrato de dados BPC Jud — v0.6
 
 Este documento substitui o contrato v0.1 baseado em SQLite/MongoDB.
 
@@ -7,8 +7,10 @@ Este documento substitui o contrato v0.1 baseado em SQLite/MongoDB.
 - DataJud: universo de processos e movimentos dos assuntos 6114, 11946 e 11947;
 - Comunica PJe: comunicações e atos publicados consultados por número CNJ;
 - TPU local: nomes e hierarquias de assuntos, classes e movimentos do CNJ.
-- Catálogo CKAN do INSS: metadados de recursos em `recursos_externos`; os
-  arquivos mensais de benefícios ainda não integram a camada Silver.
+- CKAN/INSS: catálogo em `recursos_externos` e indeferimentos BPC agregados por
+  competência, UF, espécie e motivo em `indicadores_inss_indeferimentos`.
+- CJF/TRF1/JEF1 e STJ: corpus complementar em `documentos_publicos`; vínculos
+  explícitos com a amostra em `documento_processos`, sem aumentar a população.
 - Portal da Transparência/CGU: `GET /api-de-dados/bpc-por-municipio`, indicadores
   mensais agregados de BPC por código IBGE, autenticados pelo cabeçalho
   `chave-api-dados`. O token vem do ambiente, nunca do código ou do payload.
@@ -45,6 +47,8 @@ PostgreSQL normalizado:
 - `extracoes_ia`.
 - `recursos_externos` (catálogo de fontes, não indicadores importados).
 - `indicadores_bpc_municipio` (agregados da CGU; não são processos).
+- `documentos_publicos`, `documento_processos` (corpus complementar e vínculos).
+- `indicadores_inss_indeferimentos` (agregados administrativos, não processos).
 
 O payload bruto também fica em JSONB, mas os campos usados em filtros e junções
 devem possuir colunas tipadas.
@@ -82,6 +86,81 @@ As views iniciais são:
 
 Novas métricas devem registrar fórmula, população, tratamento de ausências e
 versão da pipeline.
+
+## Complementação pública — contrato v0.6 (06/10/2026)
+
+As novas fontes NÃO ampliam silenciosamente a população de processos DataJud.
+STJ e jurisprudência CJF/TRF1/JEF formam corpus complementar identificado por
+fonte. Um documento só é vinculado a um processo existente quando há CNJ
+completo explicitamente informado em campo estruturado da origem. Não ligar por
+nome, número curto do STJ, similaridade de texto ou hipótese de recurso.
+
+### `documentos_publicos`
+
+| Campo | Tipo lógico | Regra |
+| --- | --- | --- |
+| `id` | bigint PK autogerado | Identificador local |
+| `fonte` | varchar(30) | `stj`, `cjf_trf1`, `trf1_arquivo` |
+| `documento_id` | varchar(200) | ID estável da origem, nunca posição de página |
+| `hash_conteudo` | varchar(64) | SHA-256 do JSON normalizado do documento |
+| `tipo_documento`, `tribunal` | varchar(100), varchar(30) | Tipo e órgão, quando informados |
+| `numero_origem` | text | Número como consta da fonte; pode não ser CNJ |
+| `numeros_cnj` | JSON/JSONB lista | CNJs completos estruturados, sem extração de nomes |
+| `data_publicacao`, `data_decisao` | date, nullable | Só data parseável explícita |
+| `ementa`, `decisao`, `texto` | text, nullable | Conteúdo publicado; não implica autos completos |
+| `url_origem` | text | Página oficial de referência |
+| `recurso_url`, `arquivo_bruto` | text | Recurso oficial e caminho Bronze local |
+| `payload` | JSON/JSONB objeto | Campos originais do documento, sem credenciais |
+| `coleta_id` | UUID FK `coletas` | Execução que observou a versão |
+| `coletado_em` | timestamp UTC | Momento da coleta |
+
+Chave única: `fonte + documento_id + hash_conteudo`. Repetições não duplicam;
+alteração gera nova versão, sem reescrever o documento antigo. Os vínculos em
+`documento_processos` usam PK composta `documento_id` (FK documentos_publicos.id)
++ `processo_id` (FK processos.id), com `criterio` varchar(40) igual a
+`cnj_explicito`. O vínculo indica identidade, não valida concessão inicial.
+
+Bronze de arquivos conserva bytes originais em `data/raw/<fonte>/<execucao>/`,
+incluindo JSON do STJ e HTML do CJF. Não converter ementa ou dispositivo do
+espelho em "sentença completa". Dados pessoais eventualmente existentes nos
+textos permanecem locais e fora do Git; a triagem IpeaIA de metadados não os
+envia automaticamente. Metadados e links podem ser exibidos no painel.
+
+No PostgreSQL haverá migração aditiva; no SQLite a atualização cria somente as
+novas tabelas, sem restaurar, apagar ou alterar extrações anteriores. A exportação
+portátil inclui as tabelas novas e cria tabelas vazias caso ausentes na cópia
+antiga; a ausência não pode ser tratada como dados coletados.
+
+### `indicadores_inss_indeferimentos`
+
+Agregados administrativos, não processos nem pessoas identificadas. Campos:
+`id` bigint PK; `fonte` varchar(30) = `inss_indeferimentos`; `competencia` integer
+AAAAMM extraído do recurso mensal solicitado; `uf` varchar(2); `especie` integer
+(87 deficiência, 88 idoso); `motivo` text exatamente como publicado (espaço vazio
+vira `Não informado`); `quantidade` bigint; `recurso_id` varchar(500);
+`recurso_url`, `arquivo_bruto` text; `hash_arquivo` varchar(64) SHA-256 dos bytes;
+`coleta_id` UUID FK coletas; `coletado_em` timestamp UTC. Chave única:
+`fonte + competencia + uf + especie + motivo + hash_arquivo`. Uma nova versão
+do arquivo gera outro conjunto; NÃO somar snapshots distintos da mesma
+competência. O cliente grava manifesto com contagens totais/selecionadas e
+filtros. Não armazena data de nascimento, sexo, DER ou outra linha individual
+na Silver; os bytes da planilha ficam apenas na Bronze local ignorada pelo Git.
+
+O importador exige cabeçalhos espécie, motivo e UF reconhecidos, filtra espécies
+87/88 e UF explicitamente selecionada e só persiste após ler e agregar o
+arquivo completo. Espécie é inferida apenas do código numérico da coluna, não
+da descrição ou suposição. Colunas inválidas/recurso sem competência comprovada
+interrompem a importação. Os motivos não são unidos a processos individuais.
+
+O layout real de agosto/2026 contém título na primeira linha, cabeçalho na
+segunda e duas colunas consecutivas `Espécie` (código e descrição). O parser
+busca cabeçalho nas primeiras 20 linhas, usa a primeira coluna numérica do par
+e valida os códigos linha a linha; não deduz código pela descrição. A competência
+de cada linha deve corresponder ao recurso solicitado, inclusive em importação
+de arquivo local. Divergência rejeita o arquivo completo antes da Silver.
+
+CAPTCHA/anti-robô será registrado como bloqueio, não contornado e não confundido
+com ausência de dados.
 
 ## IA
 
@@ -174,11 +253,33 @@ incluem motivos administrativos e ajudam a contextualizar, sem vínculo CNJ
 confirmado. Não atribuir esses motivos a um processo individual.
 
 Decisão atual: continuar a triagem de metadados com contexto TPU e resumo
-natural; priorizar um piloto separado de documentos públicos TRF1/JEF e avaliar
-STJ como corpus complementar. Nenhum novo coletor foi integrado nesta rodada.
-NLP/Métricas continuam sem base para estimar motivo da judicialização ou
-procedência individual apenas pelo DataJud; futura extração de textos exige
-contrato de origem, identificação, cobertura e revisão antes de uso analítico.
+natural para a amostra existente. Foram implementados e testados com respostas
+reais os coletores de espelhos STJ, pesquisa CJF/TRF1/JEF1 e agregados INSS.
+Na cópia SQLite local, o piloto gravou 5 documentos TRF1, 5 JEF1 e 1 STJ,
+sem CNJ coincidente com a amostra (zero vínculos). O arquivo agosto/2026 INSS
+foi lido integralmente: 882.589 linhas, 3.258 indeferimentos espécie 87 e 389
+espécie 88 no DF, em 24 agregados. Repetição STJ não duplicou versões.
+NLP/Métricas ainda não podem atribuir motivos ou desfechos aos 2.584 processos
+originais por essas coletas: os textos estão em corpus separado, sem vínculo
+e sem envio automático à IpeaIA. Índices de ganho e hipóteses de motivação
+exigem conteúdo do próprio processo, recorte e validação humana.
+
+O arquivo TRF1 oscilou entre desafio anti-robô e acesso normal. O JavaScript
+público `https://arquivo.trf1.jus.br/js/pages/index.js` usa
+`POST https://arquivo.trf1.jus.br/localiza_processo.php`, formulário
+`ProcInclui=<CNJ sem pontuação>`, sem credencial. A resposta real para
+1053078-37.2022.4.01.3400 e casos de 2009/2013 foi
+`{"params":"35","existeProcesso":false,"retorno":"..."}`. Não comprovou
+disponibilidade de documentos da amostra. O CLI conserva a resposta e distingue
+`sem_resultado`, `bloqueada`, `falhou` e `localizado`; a consulta de disponibilidade
+ainda NÃO implementa download/conversão dos DOC/TIFF quando houver resultado.
+
+O CJF foi acessado por formulário JSF público, com ViewState e cookies de sessão,
+sem credencial institucional, em TRF1/JEF1. Paginação AJAX foi testada em duas
+páginas de 30 documentos, sem IDs repetidos. A interface não é contrato REST
+estável; mudança de formulário interrompe a coleta em vez de produzir falso vazio.
+Não afirmar completude de cobertura. No STJ, os números curtos de recurso e
+registro não são CNJ; não criar vínculo automático nem converter número curto.
 
 O parser aceita JSON puro ou um único bloco Markdown JSON, sem texto externo.
 Caminhos de evidência como `classe.nome`, `assuntos[0].nome` e
@@ -217,6 +318,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Integrar corpus CJF/TRF1/JEF1 e STJ, e agregados de indeferimentos INSS; testar disponibilidade no arquivo TRF1 sem bypass. | 11 documentos e 24 agregados reais na cópia SQLite local; zero vínculos com a amostra. Novas tabelas aditivas, origem/versões preservadas. Arquivo TRF1 sem documentos localizados nos CNJs testados; download DOC/TIFF segue pendente. Dados novos não acompanham o Git nem entram automaticamente na IpeaIA. |
 | 06/10/2026 | Prompt v1.2: resumo natural no JSON de extração e hierarquia TPU na entrada; pesquisar fontes públicas adicionais sem misturar populações. | `resumo_caso` até 1500 caracteres, sem novas tabelas; resultados anteriores preservados. CJF/TRF1 e STJ são fontes candidatas de textos, mas nenhuma coleta de documentos foi integrada. Motivo e desfecho continuam não determináveis só por metadados. |
 | 06/10/2026 | Versionar prompt de triagem em v1.1, explicitar formato e permitir evidências de `tribunal`/`grau`; desmembrar campos compostos válidos separados por `/`. | Resolve incompatibilidade `tribunal / grau` sem inventar vínculos nem descartar evidências. Metadados já enviados; enum de `campo` ampliado neste contrato. Resultados v1.0 preservados e passíveis de nova triagem v1.1. |
 | 05/10/2026 | Aceitar bloco Markdown JSON e normalizar caminhos de evidências existentes; rejeitar divergência de modelo informada pela API. | Corrige incompatibilidade de formato observada no GLM sem aceitar caminhos inexistentes nem mudar o schema; preserva rastreabilidade do caminho em `referencia`. |
