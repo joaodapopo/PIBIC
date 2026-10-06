@@ -246,3 +246,37 @@ filtrar pelas novas fontes. Chamadas diretas TRF3 tiveram timeout nesta rodada,
 apesar do documento acessível na pesquisa web: não confundir com ausência de
 texto nem alegar coleta TRF3 concluída. Busca automática de outros links,
 cobertura integral e validação humana dos textos seguem pendentes.
+
+### Descoberta e lote retomável TNU
+
+`tnu-pesquisa --query LOAS --limit 10 --paginas 5` agora busca links diretamente
+no formulário público e consulta os pendentes. A origem TNU vem da opção do
+HTML, sem valor numérico presumido. POST `listar_resultados` com pesquisa em
+inteiro teor e agrupamento; AJAX `ajax_paginar_resultado` com
+`hdnPaginaAtual`, nos mesmos cookies e controles públicos. Sem credencial.
+Preserva HTML inicial/pesquisa/AJAX antes de interpretar, valida contagens,
+IDs e links; não enumera IDs nem segue rotas autenticadas.
+
+Evidência real: LOAS informou 534 resultados e 54 páginas de 10 itens.
+Duas páginas retornaram 20 links diferentes. Isso é volume informado pelo
+portal, não 534 documentos baixados nem processos da amostra. Primeiro lote
+de três URLs acrescentou seis documentos; repetir com limite dois pulou as
+três URLs concluídas e acrescentou dois documentos de outras duas URLs.
+API TNU retornou HTTP 200, 14 documentos com texto e seis CNJs distintos,
+incluindo o controle anterior. Corpus total local: 54 versões; população
+DataJud: 2.584; vínculos: os mesmos três de um único caso do Piauí.
+
+O limite conta URLs, não artigos/processos. Repetir examina pendentes nas
+páginas solicitadas; ampliar páginas permite examinar outros resultados.
+`--retentar` reconsulta também URLs já concluídas. Ordenação e agrupamento
+ficam no manifesto; mudanças entre execuções impedem alegar completude.
+O texto continua local e não entra automaticamente na triagem IpeaIA.
+Controle negativo real com termo inexistente retornou o título
+`0 documentos encontrados`, mas omitiu os valores dos campos de totais.
+O parser só reconhece esse vazio com título/área/metadados únicos e página 1
+confirmada, sem cards. O CLI terminou `sem_resultado`, conservando a resposta
+original; ausência genérica de valores ou HTML de erro continua sendo falha.
+Teste direto TRF3 com curl IPv4 também terminou em timeout sem bytes;
+o link público TRF5 de navegação `login/acesso.wsp` redirecionou para HTTP 404.
+Não contornar acesso: TRF5 permanece disponível por links publicados,
+e a descoberta automática dessa fonte ainda não foi validada.

@@ -228,6 +228,38 @@ Nenhum processo novo é criado; só CNJ do cabeçalho idêntico ao já existente
 permite vínculo. Corpus permanece local, fora do Git e sem envio automático
 à IpeaIA. A triagem atual continua DataJud + TPU com resumo natural.
 
+`tnu-pesquisa` acrescenta descoberta de links pelo formulário público TNU,
+sem nova tabela ou envio à IA. Usa `POST /eproc/externo_controlador.php?acao=jurisprudencia@jurisprudencia/listar_resultados`,
+`txtPesquisa`, `selOrigem[]` com valor da opção rotulada TNU no HTML,
+`rdoCampo=I` (inteiro teor) e `chkAgruparResultados=on`, com cookies públicos.
+Pagina por `ajax_paginar_resultado`, serializando controles do formulário
+e alterando `hdnPaginaAtual`; mantém 10 resultados por página. Requer metadados
+numéricos, página esperada, contagem de cards e IDs coerentes com os links
+`a.inteiroTeor[data-link]`. Mudança de layout/total rejeita a página, não gera
+falso vazio. No vazio real da primeira página, o portal omite `value` nos
+totais; só aceitar esse caso com título explícito `0 documentos encontrados`
+na área de resultados, metadados únicos, página 1 confirmada e nenhum card.
+Ausência genérica de valores não é vazio. Bronze guarda página inicial, pesquisa e respostas AJAX antes
+da interpretação. Resultados informados não são documentos já coletados.
+
+Só segue links efetivamente publicados. Remove exclusivamente o parâmetro
+cosmético de realce `termosPesquisados` (base64 validado), mantendo o ID real
+e a rota HTTPS oficial, para não versionar realces como conteúdo novo.
+Cada URL baixada usa o contrato `publicados_html_v1` acima. Coletas concluídas
+ou vazias tematicamente da mesma URL/versão são puladas; `--retentar` reconsulta
+também essas URLs. Repetir avança entre links pendentes dentro das páginas
+solicitadas, não além delas; ampliar `--paginas` examina resultados adicionais.
+Erros não se tornam vazios. `--limit` conta URLs consultadas, não processos,
+pois uma URL agrupada pode conter vários artigos do mesmo processo.
+
+A coleta de busca usa `coletas.fonte=tnu_pesquisa`, partição igual à consulta,
+e manifesto em `parametros`: consulta, limites, `versao_busca=tnu_form_v1`,
+origem, campo pesquisado, agrupamento, ordenação, tamanho da página, totais
+informados, páginas lidas, URLs consultadas/puladas, documentos observados,
+versões novas e limite atingido. Cada URL tem sua coleta `tnu` e transação;
+sucessos persistem se um documento posterior falhar. A ordem pública pode
+mudar entre execuções; não declarar completude nem amostra representativa.
+
 ## IA
 
 ### Execução portátil sem Docker (05/10/2026)
@@ -323,8 +355,8 @@ natural para a amostra existente. Foram implementados e testados com respostas
 reais os coletores de espelhos STJ, pesquisa CJF/TRF1/JEF1 e agregados INSS.
 No piloto inicial foram gravados 5 documentos TRF1, 5 JEF1 e 1 STJ,
 sem CNJ coincidente com a amostra nessa etapa. Após as complementações,
-a cópia local tem 46 versões documentais: 11 CJF, 21 STJ, 7 arquivo TRF1,
-6 TNU e 1 TRF5. Há três vínculos de versões a um único processo BPC do Piauí,
+a cópia local tem 54 versões documentais: 11 CJF, 21 STJ, 7 arquivo TRF1,
+14 TNU e 1 TRF5. Há três vínculos de versões a um único processo BPC do Piauí,
 fora DF/RIDE; nenhum novo vínculo documental TNU/TRF5. Esses números são
 versões de documentos, não processos adicionais nem cobertura de autos.
 A tentativa direta TRF3 ficou `falhou` por timeout, não `sem_resultado`.
@@ -450,6 +482,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Descobrir links TNU pelo formulário público e paginação AJAX, com retomada por URL já coletada na mesma versão. | Busca LOAS informou 534 resultados; duas páginas reais tiveram 20 links distintos. Piloto coletou 3 URLs/6 documentos; repetição pulou essas URLs e coletou outras 2/2 documentos. TNU local: 14 documentos de 6 CNJs; total de corpus 54 versões. Os 2.584 processos e três vínculos anteriores foram preservados. Não significa cobertura DF/RIDE, nem envio de texto à IA. |
 | 06/10/2026 | Integrar documentos HTML publicados TNU/TRF3/TRF5 por URLs oficiais explícitas, usando o corpus versionado existente. | Coleta real TNU: seis documentos; TRF5: um documento. Reexecução: zero versões novas. CNJ só do cabeçalho/campo Processo; população original permanece 2.584. Textos locais, não anonimizados nem enviados à IA. Contrato v0.8 sem migração; descoberta automática de links pendente. TRF3 teve timeout e coleta `falhou`, sem dados gravados dessa fonte. |
 | 06/10/2026 | Pesquisa adicional confirmou exemplos públicos de texto decisório na TNU, TRF3 e TRF5; priorizar piloto textual complementar, sem ampliar silenciosamente a amostra. | CNJs reais TNU `5006875-14.2022.4.04.7005` e TRF3 `5000929-32.2025.4.03.6343`, com relatório/voto acessíveis. Fontes e links em `FONTES_ABERTAS.md`; ainda não importados. Não comprovam cobertura DF/RIDE nem API de lote. Triagem atual continua DataJud + TPU, resumo natural v1.2 e revisão pendente; não envia esses textos nem determina motivo/desfecho individual. |
 | 06/10/2026 | Integrar concessões públicas INSS como contexto agregado por competência/UF/espécie/despacho, em tabela separada. | Leitura integral agosto/2026: 848.996 linhas; DF: 1.495 concessões espécie 87 e 667 espécie 88, em 8 grupos. Não são processos, pessoas únicas nem taxa de procedência. Microdados só na Bronze local; sem vínculo CNJ nem envio à IA. Contrato v0.7/migração aditiva 0007. |

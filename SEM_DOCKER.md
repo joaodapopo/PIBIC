@@ -118,6 +118,24 @@ anteriores. Não repetir em loop um processo rejeitado sem avaliar o diagnóstic
 
 ## Documentos publicados TNU/TRF3/TRF5
 
+Para buscar vários documentos da TNU sem fornecer links individuais:
+
+```powershell
+git pull
+.\.venv\Scripts\python.exe -m pip install --upgrade ./ingestion
+.\.venv\Scripts\python.exe -m bpc_ingestion tnu-pesquisa --query LOAS --limit 10 --paginas 5 --timeout 120
+```
+
+Repetir pula URLs já concluídas na mesma versão do parser e consulta as
+próximas pendentes dentro das cinco páginas (10 resultados por página).
+Quando não houver pendentes nessas páginas, aumente `--paginas`; suporta
+até 100 páginas e 50 URLs por lote. `--retentar` reconsulta também sucessos
+anteriores. O limite conta URLs: uma página de inteiro teor pode trazer
+vários artigos do mesmo processo. Não é amostra representativa nem garantia
+de cobertura DF/RIDE. Busca e documentos ficam no banco/Bronze locais,
+sem token e sem envio automático à IA. Cada URL bem-sucedida é salva antes
+da próxima; erro interrompe o lote sem apagar os documentos anteriores.
+
 Com a instalação atualizada, pode baixar links oficiais conhecidos, sem token:
 
 ```powershell

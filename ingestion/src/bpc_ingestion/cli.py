@@ -8,6 +8,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import UUID
 
 from .bronze import BronzeWriter
 from .archive_text import converted_document, pending_archive_text
@@ -24,7 +25,7 @@ from .inss_benefits import InssBenefitsClient, UF_NAMES, aggregate_xlsx, store_a
 from .inss_concessions import DATASET as CONCESSIONS_DATASET, aggregate_concession_xlsx, store_concessions
 from .ipeaia import (IpeaIaClient, PROMPT_VERSION, RejectedIpeaResponse,
                     load_process_input, pending_processes, save_rejected_response)
-from .models import ExtracaoIa, IndicadorInssConcessao, IndicadorInssIndeferimento, Processo
+from .models import Coleta, ExtracaoIa, IndicadorInssConcessao, IndicadorInssIndeferimento, Processo
 from .persistence import agora_iso
 from .postgres_store import PostgresStore
 from .published_documents import official_url, published_documents
@@ -32,6 +33,7 @@ from .public_sources import (ArchiveClient, CjfClient, PublicHttp, SourceBlocked
                              cjf_partition, pending_cjf_sample, preserve_raw, store_document, stj_document)
 from .sqlite_store import SqliteStore
 from .transparencia import TransparenciaClient, meses_no_periodo, normalizar_indicador
+from .tnu_search import HOST as TNU_HOST, TnuSearchClient
 
 
 LOGGER = logging.getLogger("bpc_ingestion")
@@ -107,6 +109,13 @@ def construir_parser() -> argparse.ArgumentParser:
     published.add_argument("--urls", nargs="+", required=True)
     published.add_argument("--timeout", type=float, default=120)
     published.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
+    tnu = commands.add_parser("tnu-pesquisa", help="Busca jurisprudência pública TNU por texto e coleta links pendentes")
+    tnu.add_argument("--query", default="LOAS")
+    tnu.add_argument("--limit", type=int, default=10, help="URLs pendentes a consultar, 1..50; não número de processos")
+    tnu.add_argument("--paginas", type=int, default=5, help="Páginas de 10 resultados a examinar, 1..100")
+    tnu.add_argument("--timeout", type=float, default=120)
+    tnu.add_argument("--retentar", action="store_true", help="Também consulta URLs já concluídas nesta versão do parser")
+    tnu.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
     sample = commands.add_parser("cjf-amostra", help="Busca textos públicos por CNJ da amostra existente de Brasília")
     sample.add_argument("--limit", type=int, default=10, help="Número de processos a consultar, 1..50")
     sample.add_argument("--base", choices=("TRF1", "JEF1"), default="JEF1")
@@ -481,6 +490,24 @@ def collect_public_documents(args: argparse.Namespace, settings: Settings) -> in
     return 0
 
 
+def _collect_published_target(store, http, source, identifier, url, raw_dir):
+    run = store.start_collection(source, identifier, {"url": url, "versao_parser": "publicados_html_v1"})
+    raw = None
+    try:
+        body = http.fetch(url)
+        raw = preserve_raw(body, raw_dir, source, run, "html")
+        documents = published_documents(body, url)
+        with store.Session.begin() as session:
+            inserted = sum(int(store_document(session, doc, run, raw)) for doc in documents)
+        store.finish_collection(run, "concluida" if documents else "sem_resultado", len(documents), raw_file=str(raw))
+        LOGGER.info("%s: %d documentos BPC publicados, %d versões novas; sem envio à IA", source, len(documents), inserted)
+        return len(documents), inserted
+    except Exception as exc:
+        store.finish_collection(run, "bloqueada" if isinstance(exc, SourceBlocked) else "falhou", 0,
+                                raw_file=str(raw) if raw else None, error=str(exc))
+        raise RuntimeError(f"Documento {source} {identifier}: {exc}; coletas anteriores preservadas") from exc
+
+
 def collect_published_documents(args: argparse.Namespace, settings: Settings) -> int:
     if not 1 <= len(args.urls) <= 50 or not math.isfinite(args.timeout) or not 0 < args.timeout <= 600:
         raise ValueError("Use 1..50 URLs e timeout positivo até 600 segundos")
@@ -490,25 +517,73 @@ def collect_published_documents(args: argparse.Namespace, settings: Settings) ->
         ensure_document_tables(store.engine)
         clients = {}
         for source, identifier, url in targets:
-            run = store.start_collection(source, identifier, {"url": url, "versao_parser": "publicados_html_v1"})
-            raw = None
-            try:
-                host = urlparse(url).hostname
-                if host not in clients:
-                    clients[host] = PublicHttp(timeout=args.timeout, max_bytes=16 * 1024 * 1024,
-                                               allowed_hosts={host})
-                http = clients[host]
-                body = http.fetch(url)
-                raw = preserve_raw(body, args.raw_dir, source, run, "html")
-                documents = published_documents(body, url)
-                with store.Session.begin() as session:
-                    inserted = sum(int(store_document(session, doc, run, raw)) for doc in documents)
-                store.finish_collection(run, "concluida" if documents else "sem_resultado", len(documents), raw_file=str(raw))
-                LOGGER.info("%s: %d documentos BPC publicados, %d versões novas; sem envio à IA", source, len(documents), inserted)
-            except Exception as exc:
-                store.finish_collection(run, "bloqueada" if isinstance(exc, SourceBlocked) else "falhou", 0,
-                                        raw_file=str(raw) if raw else None, error=str(exc))
-                raise RuntimeError(f"Documento {source} {identifier}: {exc}; coletas anteriores preservadas") from exc
+            host = urlparse(url).hostname
+            if host not in clients:
+                clients[host] = PublicHttp(timeout=args.timeout, max_bytes=16 * 1024 * 1024,
+                                           allowed_hosts={host})
+            _collect_published_target(store, clients[host], source, identifier, url, args.raw_dir)
+    finally:
+        store.close()
+    return 0
+
+
+def collect_tnu_search(args: argparse.Namespace, settings: Settings) -> int:
+    if (not args.query.strip() or len(args.query) > 200 or not 1 <= args.limit <= 50
+            or not 1 <= args.paginas <= 100 or not math.isfinite(args.timeout) or not 0 < args.timeout <= 600):
+        raise ValueError("Use query até 200 caracteres, limit 1..50, paginas 1..100 e timeout positivo até 600")
+    store = PostgresStore(settings.database_url)
+    run, last_raw = None, None
+    done = documents = inserted = skipped = pages_read = 0
+    try:
+        ensure_document_tables(store.engine)
+        run = store.start_collection("tnu_pesquisa", args.query,
+            {"query": args.query, "limit": args.limit, "paginas": args.paginas, "versao_busca": "tnu_form_v1"})
+        with store.Session() as session:
+            completed = set() if args.retentar else {
+                c.particao for c in session.query(Coleta).filter(Coleta.fonte == "tnu",
+                    Coleta.status.in_(("concluida", "sem_resultado")))
+                if (c.parametros or {}).get("versao_parser") == "publicados_html_v1"}
+        def save_search(url, body):
+            nonlocal last_raw
+            last_raw = preserve_raw(body, args.raw_dir, "tnu_pesquisa", run, "html")
+        http = PublicHttp(timeout=args.timeout, allowed_hosts={TNU_HOST}, max_bytes=16 * 1024 * 1024)
+        client = TnuSearchClient(http, on_response=save_search)
+        seen = set()
+        for page, body, links in client.pages(args.query, args.paginas):
+            pages_read += 1
+            LOGGER.info("TNU: página %d, %d links; %d URLs consultadas neste lote", page, len(links), done)
+            for url in links:
+                source, identifier, canonical = official_url(url)
+                if canonical in seen:
+                    continue
+                seen.add(canonical)
+                if identifier in completed:
+                    skipped += 1
+                    continue
+                count, new = _collect_published_target(store, http, source, identifier, canonical, args.raw_dir)
+                documents += count
+                inserted += new
+                done += 1
+                if done >= args.limit:
+                    break
+            if done >= args.limit:
+                break
+        with store.Session.begin() as session:
+            row = session.get(Coleta, UUID(run))
+            row.parametros = {**row.parametros, **client.context, "paginas_lidas": pages_read,
+                              "urls_consultadas": done, "urls_ja_concluidas": skipped,
+                              "documentos_observados": documents, "versoes_novas": inserted,
+                              "limite_atingido": done >= args.limit}
+        store.finish_collection(run, "sem_resultado" if client.context.get("resultados_informados") == 0 else "concluida",
+                                documents, raw_file=str(last_raw) if last_raw else None)
+        LOGGER.info("TNU: %d URLs consultadas, %d documentos, %d versões novas; %d URLs já concluídas puladas",
+                    done, documents, inserted, skipped)
+    except Exception as exc:
+        if run:
+            blocked = isinstance(exc, SourceBlocked) or isinstance(exc.__cause__, SourceBlocked)
+            store.finish_collection(run, "bloqueada" if blocked else "falhou", documents,
+                                    raw_file=str(last_raw) if last_raw else None, error=str(exc))
+        raise RuntimeError(f"Pesquisa TNU: {exc}; documentos anteriores preservados") from exc
     finally:
         store.close()
     return 0
@@ -629,6 +704,8 @@ def executar(argv: Sequence[str] | None = None) -> int:
         return collect_public_documents(args, settings)
     if args.command == "documentos-publicados":
         return collect_published_documents(args, settings)
+    if args.command == "tnu-pesquisa":
+        return collect_tnu_search(args, settings)
     if args.command == "cjf-amostra":
         return collect_cjf_sample(args, settings)
     if args.command == "converter-arquivo-trf1":
