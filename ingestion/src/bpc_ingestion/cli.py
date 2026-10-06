@@ -34,6 +34,7 @@ from .public_sources import (ArchiveClient, CjfClient, PublicHttp, SourceBlocked
 from .sqlite_store import SqliteStore
 from .transparencia import TransparenciaClient, meses_no_periodo, normalizar_indicador
 from .tnu_search import HOST as TNU_HOST, TnuSearchClient
+from .trf5_search import HOST as TRF5_HOST, Trf5SearchClient
 
 
 LOGGER = logging.getLogger("bpc_ingestion")
@@ -116,6 +117,14 @@ def construir_parser() -> argparse.ArgumentParser:
     tnu.add_argument("--timeout", type=float, default=120)
     tnu.add_argument("--retentar", action="store_true", help="Também consulta URLs já concluídas nesta versão do parser")
     tnu.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
+    trf5 = commands.add_parser("trf5-pesquisa", help="Busca jurisprudência pública TRF5 por texto e coleta links pendentes")
+    trf5.add_argument("--query", default="LOAS")
+    trf5.add_argument("--limit", type=int, default=10, help="URLs pendentes consultadas, 1..50")
+    trf5.add_argument("--paginas", type=int, default=5, help="Páginas de resultados a examinar, 1..100")
+    trf5.add_argument("--tamanho-pagina", type=int, choices=(10, 25, 50, 100), default=10)
+    trf5.add_argument("--timeout", type=float, default=120)
+    trf5.add_argument("--retentar", action="store_true", help="Também consulta documentos já concluídos nesta versão do parser")
+    trf5.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
     sample = commands.add_parser("cjf-amostra", help="Busca textos públicos por CNJ da amostra existente de Brasília")
     sample.add_argument("--limit", type=int, default=10, help="Número de processos a consultar, 1..50")
     sample.add_argument("--base", choices=("TRF1", "JEF1"), default="JEF1")
@@ -589,6 +598,70 @@ def collect_tnu_search(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def collect_trf5_search(args: argparse.Namespace, settings: Settings) -> int:
+    if (not args.query.strip() or len(args.query) > 200 or not 1 <= args.limit <= 50
+            or not 1 <= args.paginas <= 100 or not math.isfinite(args.timeout) or not 0 < args.timeout <= 600):
+        raise ValueError("Use query até 200 caracteres, limit 1..50, paginas 1..100 e timeout positivo até 600")
+    store = PostgresStore(settings.database_url)
+    run, last_raw = None, None
+    done = documents = inserted = skipped = pages_read = 0
+    try:
+        ensure_document_tables(store.engine)
+        run = store.start_collection("trf5_pesquisa", args.query,
+            {"query": args.query, "limit": args.limit, "paginas": args.paginas,
+             "tamanho_pagina": args.tamanho_pagina, "versao_busca": "trf5_form_v1"})
+        with store.Session() as session:
+            completed = set() if args.retentar else {
+                c.particao for c in session.query(Coleta).filter(Coleta.fonte == "trf5_jurisprudencia",
+                    Coleta.status.in_(("concluida", "sem_resultado")))
+                if (c.parametros or {}).get("versao_parser") == "publicados_html_v1"}
+        def save_search(url, body):
+            nonlocal last_raw
+            last_raw = preserve_raw(body, args.raw_dir, "trf5_pesquisa", run, "html")
+        http = PublicHttp(timeout=args.timeout, allowed_hosts={TRF5_HOST}, max_bytes=16 * 1024 * 1024,
+                          form_encoding="iso-8859-1")
+        client = Trf5SearchClient(http, on_response=save_search)
+        seen = set()
+        for page, body, links in client.pages(args.query, args.paginas, args.tamanho_pagina):
+            pages_read += 1
+            LOGGER.info("TRF5: página %d, %d links; %d URLs consultadas neste lote", page, len(links), done)
+            for url in links:
+                source, identifier, canonical = official_url(url)
+                if canonical in seen:
+                    continue
+                seen.add(canonical)
+                if identifier in completed:
+                    skipped += 1
+                    continue
+                count, new = _collect_published_target(store, http, source, identifier, canonical, args.raw_dir)
+                documents += count
+                inserted += new
+                done += 1
+                if done >= args.limit:
+                    break
+            if done >= args.limit:
+                break
+        with store.Session.begin() as session:
+            row = session.get(Coleta, UUID(run))
+            row.parametros = {**row.parametros, **client.context, "paginas_lidas": pages_read,
+                              "urls_consultadas": done, "urls_ja_concluidas": skipped,
+                              "documentos_observados": documents, "versoes_novas": inserted,
+                              "limite_atingido": done >= args.limit}
+        store.finish_collection(run, "sem_resultado" if client.context.get("resultados_informados") == 0 else "concluida",
+                                documents, raw_file=str(last_raw) if last_raw else None)
+        LOGGER.info("TRF5: %d URLs consultadas, %d documentos, %d versões novas; %d URLs já concluídas puladas",
+                    done, documents, inserted, skipped)
+    except Exception as exc:
+        if run:
+            blocked = isinstance(exc, SourceBlocked) or isinstance(exc.__cause__, SourceBlocked)
+            store.finish_collection(run, "bloqueada" if blocked else "falhou", documents,
+                                    raw_file=str(last_raw) if last_raw else None, error=str(exc))
+        raise RuntimeError(f"Pesquisa TRF5: {exc}; documentos anteriores preservados") from exc
+    finally:
+        store.close()
+    return 0
+
+
 def collect_cjf_sample(args: argparse.Namespace, settings: Settings) -> int:
     if not 1 <= args.limit <= 50 or not 1 <= args.paginas <= 20 or not 0 < args.timeout <= 600:
         raise ValueError("Use limit 1..50, paginas 1..20 e timeout positivo até 600")
@@ -706,6 +779,8 @@ def executar(argv: Sequence[str] | None = None) -> int:
         return collect_published_documents(args, settings)
     if args.command == "tnu-pesquisa":
         return collect_tnu_search(args, settings)
+    if args.command == "trf5-pesquisa":
+        return collect_trf5_search(args, settings)
     if args.command == "cjf-amostra":
         return collect_cjf_sample(args, settings)
     if args.command == "converter-arquivo-trf1":

@@ -140,6 +140,7 @@ Com a instalação atualizada, pode baixar links oficiais conhecidos, sem token:
 
 ```powershell
 .\.venv\Scripts\python.exe -m bpc_ingestion documentos-publicados --urls 'https://eproctnu-jur.cjf.jus.br/eproc/externo_controlador.php?acao=jurisprudencia%40jurisprudencia%2Fdownload_inteiro_teor&id_jurisprudencia=771782816310867611465715976907' 'https://jurisprudencia.trf5.jus.br/jurisprudencia/exibir.wsp?tmp.id_documento=165824' --timeout 120
+.\.venv\Scripts\python.exe -m bpc_ingestion trf5-pesquisa --query LOAS --limit 10 --paginas 2 --timeout 120
 ```
 
 Esse piloto foi testado na base local: seis documentos TNU (um processo) e um

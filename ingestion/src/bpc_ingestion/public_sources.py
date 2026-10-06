@@ -49,8 +49,9 @@ class OfficialRedirectHandler(HTTPRedirectHandler):
 
 class PublicHttp:
     def __init__(self, timeout: float = 60, interval: float = 1, max_bytes: int = 64 * 1024 * 1024,
-                 allowed_hosts: set[str] | None = None):
+                 allowed_hosts: set[str] | None = None, form_encoding: str = "utf-8"):
         self.timeout, self.interval, self.max_bytes = timeout, interval, max_bytes
+        self.form_encoding = form_encoding
         handlers = [HTTPCookieProcessor(CookieJar())]
         if allowed_hosts is not None:
             handlers.append(OfficialRedirectHandler(allowed_hosts))
@@ -69,7 +70,7 @@ class PublicHttp:
             time.sleep(wait)
         self.last = time.monotonic()
         request = Request(url, headers={"User-Agent": "bpc-pesquisa/0.6", "Accept": "*/*", **(headers or {})},
-                          data=urlencode(data).encode() if data is not None else None)
+                          data=urlencode(data, encoding=self.form_encoding).encode("ascii") if data is not None else None)
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
                 if int(response.headers.get("Content-Length") or 0) > self.max_bytes:

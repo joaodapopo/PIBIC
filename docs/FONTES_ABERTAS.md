@@ -263,7 +263,7 @@ portal, não 534 documentos baixados nem processos da amostra. Primeiro lote
 de três URLs acrescentou seis documentos; repetir com limite dois pulou as
 três URLs concluídas e acrescentou dois documentos de outras duas URLs.
 API TNU retornou HTTP 200, 14 documentos com texto e seis CNJs distintos,
-incluindo o controle anterior. Corpus total local: 54 versões; população
+incluindo o controle anterior. Corpus total local: 69 versões; população
 DataJud: 2.584; vínculos: os mesmos três de um único caso do Piauí.
 
 O limite conta URLs, não artigos/processos. Repetir examina pendentes nas
@@ -279,4 +279,31 @@ original; ausência genérica de valores ou HTML de erro continua sendo falha.
 Teste direto TRF3 com curl IPv4 também terminou em timeout sem bytes;
 o link público TRF5 de navegação `login/acesso.wsp` redirecionou para HTTP 404.
 Não contornar acesso: TRF5 permanece disponível por links publicados,
-e a descoberta automática dessa fonte ainda não foi validada.
+e a descoberta automática ainda estava pendente quando essa primeira avaliação foi registrada.
+
+### Pesquisa pública TRF5 confirmada
+
+O formulário público em
+[pesquisa.wsp](https://jurisprudencia.trf5.jus.br/jurisprudencia/pesquisa.wsp)
+funcionou sem credencial, mantendo cookies de sessão. A pesquisa simples
+envia `POST /jurisprudencia/resultado_pesquisa.wsp` com `tmp.search.query`,
+complemento vazio, `tmp.ds_legislacao_2` vazio, quantidade 10 e
+`tmp.search.acao=novapesquisa`, conforme o formulário e seu JavaScript.
+LOAS informou 2.233 resultados nesta consulta. Esse total não indica cobertura
+DF/RIDE nem documentos importados. O comando `trf5-pesquisa --query LOAS
+--limit 10 --paginas 2` automatiza busca e paginação com retomada. Preserva
+respostas e usa IDs publicados nos resultados; valida offsets, totais, contagem
+por página e duplicatas. URLs já concluídas são puladas; `--retentar` força nova
+consulta. O lote percorreu duas páginas e importou 10 documentos. A busca
+`benefício assistencial` também retornou documentos. Os 2.233 resultados
+informados são volume da busca LOAS, não medida de relevância BPC, recorte
+geográfico ou cobertura completa.
+
+Três links de documentos efetivamente publicados foram importados pelo comando
+existente, com IDs 4036, 3843 e 5036. O parser agora preserva o formato pré-CNJ
+observado, sem convertê-lo nem criar vínculo. Total local: 69 versões de
+documentos, 16 TRF5; os 2.584 processos e três vínculos foram preservados.
+SQLite passou na verificação de integridade e não apresentou violações de
+chaves estrangeiras. Dados coletados permanecem locais, não no Git e não
+enviados automaticamente à IpeaIA. Uma seção Ementa pode estar vazia na fonte;
+não preencher com texto de outra seção nem afirmar disponibilidade de autos.

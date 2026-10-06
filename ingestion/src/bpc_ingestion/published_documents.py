@@ -48,16 +48,20 @@ def _number(text: str) -> str:
 def _document(source, identifier, url, number, text, kind, *, ementa=None, decision_date=None):
     if not text.strip() or "\ufffd" in text:
         raise ValueError("Documento vazio ou com perda de encoding")
+    cnj = cnj_number(number)
+    payload = {"id": identifier, "numero_processo": cnj, "texto": text,
+               "tipo_documento": kind, "ementa": ementa,
+               "data_decisao": decision_date.isoformat() if decision_date else None,
+               "extracao_texto": "html_publicado", "versao_parser": "publicados_html_v1"}
+    if cnj is None:
+        payload.update(numero_origem=number, formato_numero_origem="legado_sem_cnj")
     return {"fonte": source, "documento_id": identifier,
             "tribunal": {"tnu": "TNU", "trf3_jurisprudencia": "TRF3", "trf5_jurisprudencia": "TRF5"}[source],
-            "tipo_documento": kind, "numero_origem": number, "numeros_cnj": [number],
+            "tipo_documento": kind, "numero_origem": number, "numeros_cnj": [cnj] if cnj else [],
             "texto": text, "ementa": ementa, "decisao": None,
             "data_decisao": decision_date, "data_publicacao": None,
             "url_origem": url, "recurso_url": url,
-            "payload": {"id": identifier, "numero_processo": number, "texto": text,
-                        "tipo_documento": kind, "ementa": ementa,
-                        "data_decisao": decision_date.isoformat() if decision_date else None,
-                        "extracao_texto": "html_publicado", "versao_parser": "publicados_html_v1"}}
+            "payload": payload}
 
 
 def published_documents(body: bytes, url: str) -> list[dict]:
@@ -99,7 +103,11 @@ def published_documents(body: bytes, url: str) -> list[dict]:
         process_cells = [c for c in content.select("td.grid") if c.get_text(" ", strip=True).startswith("Processo:")]
         if len(process_cells) != 1:
             raise ValueError("TRF5 sem campo Processo único")
-        number = _number(process_cells[0].get_text(" ", strip=True))
+        original_number = process_cells[0].get_text(" ", strip=True).removeprefix("Processo:").strip()
+        # Formato pré-CNJ observado: preservar, jamais completar dígitos ou inferir CNJ.
+        number = cnj_number(original_number)
+        if number is None:
+            number = original_number if re.fullmatch(r"\d{4}\.\d{2}\.\d{2}\.\d{6}-\d", original_number) else _number(original_number)
         text = content.get_text("\n", strip=True)
         # Não confundir página vazia/erro com documento, nem ementa com inteiro teor.
         labels = {t.get_text(" ", strip=True): t for t in content.find_all("b", recursive=False)}

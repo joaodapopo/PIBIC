@@ -1,4 +1,4 @@
-# Contrato de dados BPC Jud — v0.8
+# Contrato de dados BPC Jud — v0.9
 
 Este documento substitui o contrato v0.1 baseado em SQLite/MongoDB.
 
@@ -9,7 +9,7 @@ Este documento substitui o contrato v0.1 baseado em SQLite/MongoDB.
 - TPU local: nomes e hierarquias de assuntos, classes e movimentos do CNJ.
 - CKAN/INSS: catálogo em `recursos_externos` e indeferimentos BPC agregados por
   competência, UF, espécie e motivo em `indicadores_inss_indeferimentos`.
-- CJF/TRF1/JEF1 e STJ: corpus complementar em `documentos_publicos`; vínculos
+- CJF/TRF1/JEF1, STJ, TNU e TRF5: corpus complementar em `documentos_publicos`; vínculos
   explícitos com a amostra em `documento_processos`, sem aumentar a população.
 - Portal da Transparência/CGU: `GET /api-de-dados/bpc-por-municipio`, indicadores
   mensais agregados de BPC por código IBGE, autenticados pelo cabeçalho
@@ -216,6 +216,27 @@ Números citados nos votos/precedentes não criam vínculos. O parser só guarda
 documentos com termos temáticos explícitos BPC/LOAS/benefício assistencial;
 isso indica corpus candidato, não prova recorte ou concessão inicial.
 
+Na pesquisa pública TRF5 foram observados números anteriores ao padrão CNJ,
+como `2009.85.02.502275-8`. O formato estrito `AAAA.NN.NN.NNNNNN-D` é preservado
+em `numero_origem`, com `numeros_cnj=[]`, `payload.numero_processo=null`,
+`payload.numero_origem` igual ao publicado e
+`payload.formato_numero_origem=legado_sem_cnj`. Não completar dígitos, converter
+esse número em CNJ ou vinculá-lo a um processo. Formatos não reconhecidos
+continuam rejeitados. Extensão compatível do parser `publicados_html_v1`, sem
+mudar payloads de documentos CNJ já aceitos nem tabelas.
+
+`trf5-pesquisa` usa o formulário público observado em `pesquisa.wsp`, mantém
+cookies de sessão e submete a busca para `/jurisprudencia/resultado_pesquisa.wsp`.
+Preserva respostas antes do parsing e pagina pelo campo `grid.pesquisa.next`,
+usando o deslocamento publicado no link "Próximo". IDs vêm somente dos links
+`javascript:exibir(<id>)` publicados. Valida totais, tamanho da página, número de
+linhas, deslocamento seguinte e duplicatas. `--limit` conta URLs de documento;
+`--paginas` limita a busca. Reexecuções pulam URLs concluídas na versão corrente
+do parser; `--retentar` força nova consulta. Busca LOAS informou 2.233 resultados;
+10 documentos foram importados em duas páginas. "Benefício assistencial" também
+retornou documentos. Esse total do portal não mede relevância BPC, DF/RIDE ou
+cobertura completa. O formulário usa ISO-8859-1 como a página observada.
+
 `texto` conserva o texto publicado normalizado por HTML, sem scripts/estilos;
 rodapés de assinatura da TNU e o horário de impressão fora do conteúdo TRF5
 não integram o texto analítico, mas permanecem nos bytes Bronze. Não garante
@@ -355,8 +376,8 @@ natural para a amostra existente. Foram implementados e testados com respostas
 reais os coletores de espelhos STJ, pesquisa CJF/TRF1/JEF1 e agregados INSS.
 No piloto inicial foram gravados 5 documentos TRF1, 5 JEF1 e 1 STJ,
 sem CNJ coincidente com a amostra nessa etapa. Após as complementações,
-a cópia local tem 54 versões documentais: 11 CJF, 21 STJ, 7 arquivo TRF1,
-14 TNU e 1 TRF5. Há três vínculos de versões a um único processo BPC do Piauí,
+a cópia local tem 69 versões documentais: 11 CJF, 21 STJ, 7 arquivo TRF1,
+14 TNU e 16 TRF5. Há três vínculos de versões a um único processo BPC do Piauí,
 fora DF/RIDE; nenhum novo vínculo documental TNU/TRF5. Esses números são
 versões de documentos, não processos adicionais nem cobertura de autos.
 A tentativa direta TRF3 ficou `falhou` por timeout, não `sem_resultado`.
@@ -482,6 +503,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Automatizar busca e paginação pública TRF5 com retomada por documento já coletado. | Consulta LOAS (2.233 resultados informados) percorreu duas páginas e importou 10 documentos; busca acentuada "benefício assistencial" também funcionou. Base local: 69 versões (16 TRF5), 2.584 processos e três vínculos anteriores; integridade SQLite OK. Total portal não equivale ao total BPC/DF/RIDE. Textos seguem fora da IpeaIA. |
 | 06/10/2026 | Descobrir links TNU pelo formulário público e paginação AJAX, com retomada por URL já coletada na mesma versão. | Busca LOAS informou 534 resultados; duas páginas reais tiveram 20 links distintos. Piloto coletou 3 URLs/6 documentos; repetição pulou essas URLs e coletou outras 2/2 documentos. TNU local: 14 documentos de 6 CNJs; total de corpus 54 versões. Os 2.584 processos e três vínculos anteriores foram preservados. Não significa cobertura DF/RIDE, nem envio de texto à IA. |
 | 06/10/2026 | Integrar documentos HTML publicados TNU/TRF3/TRF5 por URLs oficiais explícitas, usando o corpus versionado existente. | Coleta real TNU: seis documentos; TRF5: um documento. Reexecução: zero versões novas. CNJ só do cabeçalho/campo Processo; população original permanece 2.584. Textos locais, não anonimizados nem enviados à IA. Contrato v0.8 sem migração; descoberta automática de links pendente. TRF3 teve timeout e coleta `falhou`, sem dados gravados dessa fonte. |
 | 06/10/2026 | Pesquisa adicional confirmou exemplos públicos de texto decisório na TNU, TRF3 e TRF5; priorizar piloto textual complementar, sem ampliar silenciosamente a amostra. | CNJs reais TNU `5006875-14.2022.4.04.7005` e TRF3 `5000929-32.2025.4.03.6343`, com relatório/voto acessíveis. Fontes e links em `FONTES_ABERTAS.md`; ainda não importados. Não comprovam cobertura DF/RIDE nem API de lote. Triagem atual continua DataJud + TPU, resumo natural v1.2 e revisão pendente; não envia esses textos nem determina motivo/desfecho individual. |

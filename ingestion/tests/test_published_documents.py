@@ -86,6 +86,18 @@ class PublishedDocumentsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 published_documents(body, TNU)
 
+    def test_trf5_legacy_number_is_preserved_without_inventing_cnj(self):
+        body = b'''<html><td class="conteudo_body_content"><table><tr>
+        <td class="grid">Processo: 2009.85.02.502275-8</td></tr></table>
+        <b>Ementa</b>LOAS BPC<b>Inteiro Teor</b></td></html>'''
+        row = published_documents(body, TRF5)[0]
+        self.assertEqual(row["numero_origem"], "2009.85.02.502275-8")
+        self.assertEqual(row["numeros_cnj"], [])
+        self.assertIsNone(row["payload"]["numero_processo"])
+        self.assertEqual(row["payload"]["formato_numero_origem"], "legado_sem_cnj")
+        with self.assertRaises(ValueError):
+            published_documents(body.replace(b"2009.85.02.502275-8", b"12345"), TRF5)
+
     def test_redirect_cannot_leave_official_https_origin(self):
         handler = OfficialRedirectHandler({"web.trf3.jus.br"})
         request = Request(TRF3)
