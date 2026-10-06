@@ -3,11 +3,12 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from urllib.error import URLError
 
 from bpc_ingestion.ipeaia import (IpeaIaClient, PROMPT_VERSION, SYSTEM_PROMPT, RejectedIpeaResponse,
-                                build_input, save_rejected_response, validate_result)
+                                build_input, save_rejected_response, subject_hierarchy, validate_result)
 
 
 class IpeaIaTest(unittest.TestCase):
@@ -34,6 +35,7 @@ class IpeaIaTest(unittest.TestCase):
             "evidencias": [{"registro_id": 7, "campo": "assuntos", "referencia": "11946", "sustenta": "candidato"}],
             "lacunas": ["pedido", "sentença"],
             "observacao_curta": "Dados insuficientes.",
+            "resumo_caso": "Faltam a petição e a decisão para entender o motivo da ação e seu resultado.",
         }
 
     def test_input_trunca_e_nao_inclui_payload(self):
@@ -191,11 +193,40 @@ class IpeaIaTest(unittest.TestCase):
                 dict(self.result["evidencias"][0], campo="tribunal / grau")]), source)
 
     def test_prompt_explica_contrato_e_usa_versao_atual(self):
-        self.assertEqual(PROMPT_VERSION, "bpc_triagem_api_v1.1")
+        self.assertEqual(PROMPT_VERSION, "bpc_triagem_api_v1.2")
         self.assertIn(PROMPT_VERSION, SYSTEM_PROMPT)
         self.assertNotIn("bpc_triagem_api_v1.0", SYSTEM_PROMPT)
         self.assertIn("tribunal, grau", SYSTEM_PROMPT)
         self.assertIn("Não combine", SYSTEM_PROMPT)
+
+    def test_resumo_natural_obrigatorio_e_limitado(self):
+        for summary in (None, [], " ", "a" * 1501):
+            with self.subTest(summary=type(summary).__name__), self.assertRaisesRegex(ValueError, "resumo_caso"):
+                validate_result(dict(self.result, resumo_caso=summary), self.source)
+        self.assertEqual(validate_result(dict(self.result, resumo_caso="a" * 1500), self.source)["resumo_caso"], "a" * 1500)
+
+    def test_hierarquia_tpu_mantem_pai_e_fonte_sem_inventar_ancestrais(self):
+        references = {
+            11947: SimpleNamespace(codigo=11947, codigo_pai=6114, nome="Idoso", fonte_arquivo="tpu.csv"),
+            6114: SimpleNamespace(codigo=6114, codigo_pai=12734, nome="Benefício Assistencial", fonte_arquivo="tpu.csv"),
+        }
+        session = Mock()
+        session.get.side_effect = lambda model, key: references.get(key[1])
+        result = subject_hierarchy(session, 11947)
+        self.assertEqual([item["codigo"] for item in result], [6114, 11947])
+        self.assertEqual(result[0]["nome"], "Benefício Assistencial")
+        self.assertEqual(result[1]["fonte_arquivo"], "tpu.csv")
+        self.assertEqual(subject_hierarchy(session, 999), [])
+
+    def test_hierarquia_tpu_interrompe_ciclos(self):
+        references = {
+            1: SimpleNamespace(codigo=1, codigo_pai=2, nome="A", fonte_arquivo="tpu.csv"),
+            2: SimpleNamespace(codigo=2, codigo_pai=1, nome="B", fonte_arquivo="tpu.csv"),
+        }
+        session = Mock()
+        session.get.side_effect = lambda model, key: references.get(key[1])
+        self.assertEqual(len(subject_hierarchy(session, 1)), 2)
+        self.assertEqual(session.get.call_count, 2)
 
     @patch("bpc_ingestion.ipeaia.urlopen")
     def test_rejeita_texto_extra_fora_do_bloco_json(self, open_url):

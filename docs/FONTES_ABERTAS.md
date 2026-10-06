@@ -73,3 +73,56 @@ processo sem identificador e autorização adequados.
 - Dados individuais do INSS/CadÚnico ou inteiro teor em lote no PJe exigem
   autorização institucional e revisão da governança de dados. Não presumir que
   o caráter público de um processo autoriza extração irrestrita de seus dados.
+
+## Reavaliação: documentos públicos e códigos — 06/10/2026
+
+### O que pode melhorar a qualidade
+
+| Fonte | Conteúdo confirmado | Acesso e limite observado |
+| --- | --- | --- |
+| [Jurisprudência TRF1/JEF — CJF](https://jurisprudencia.cjf.jus.br/trf1/index.xhtml) | Pesquisa de acórdãos, decisões monocráticas, súmulas e arguições, com fontes TRF1/JEF1. | Página pública acessível; [carta de serviços TRF1](https://www.trf1.jus.br/trf1/carta-servicos/jurisprudencia) informa consulta livre. Não foi comprovada API documentada de coleta em lote nem cobertura de processos da amostra. |
+| [Arquivo de inteiro teor TRF1](https://arquivo.trf1.jus.br/) | Busca por número de processo de documentos publicados; o portal informa DOC e TIFF. | Formulário público confirmado, não autos completos. Disponibilidade de documento para cada CNJ da amostra ainda não medida. A [FAQ TRF1](https://www.trf1.jus.br/trf1/ouvidoria/perguntas-frequentes) descreve inteiro teor de processos físicos. |
+| [STJ — espelhos de acórdãos](https://dadosabertos.web.stj.jus.br/group/jurisprudencia) | Catálogo de jurisprudência em CSV/JSON/ZIP; espelhos, não garantia de íntegra de autos. | `GET https://dadosabertos.web.stj.jus.br/api/3/action/package_search?q=jurisprudencia&rows=1` testado sem credencial: retornou o conjunto `espelhos-de-acordaos-corte-especial`, formatos CSV/JSON/ZIP. Arquivos não foram importados. |
+| [INSS — indeferimentos](https://dadosabertos.inss.gov.br/dataset/beneficios-indeferidos-plano-de-dados-abertos-jun-2023-a-jun-2025) | Competência, espécie, motivo de indeferimento, UF e outros campos administrativos. | Recursos públicos mensais; contexto de negativas administrativas, não ligação comprovada com ações judiciais. Não atribuir motivo agregado a uma pessoa/processo. |
+
+O [dataset Segunda Turma do STJ](https://dadosabertos.web.stj.jus.br/dataset/espelhos-de-acordaos-segunda-turma)
+descreve seleção técnico-documentária de acórdãos, histórico inicial e atualizações,
+com possível repetição de IDs entre arquivos. Um importador precisa deduplicar por
+ID e preservar origem, data e corpus. Não misturar a seleção recursal STJ com
+a população de concessões iniciais TRF1/DF nem calcular taxa de procedência
+do recorte com esses julgados.
+
+**Prioridade proposta:** piloto separado de documentos TRF1/JEF; STJ como corpus
+complementar para fundamentos e construção de categorias; INSS para contexto.
+Termos de pesquisa: `"benefício assistencial"`, `"benefício de prestação continuada"`,
+`BPC`, `LOAS`, `"art. 203"`. Pesquisar número CNJ quando disponível, sem presumir
+que um acórdão de tribunal superior corresponda automaticamente ao CNJ de origem.
+Respeitar limites de acesso; não contornar CAPTCHA ou anti-robô. Nenhuma dessas
+novas fontes de documentos foi integrada à triagem nesta atualização.
+
+### Códigos de assunto
+
+A TPU local em `datajud/datajud/tb_CNJ/OUTPUT/Assuntos/assuntos_JF1G.csv` mantém
+`6114` (Benefício Assistencial) e filhos `11946` (Pessoa com Deficiência) e
+`11947` (Idoso). Não foi identificado no snapshot outro filho direto de 6114.
+O [CNJ — Justiça em Números 2023](https://bibliotecadigital.cnj.jus.br/bitstream/123456789/727/1/justica_em_numeros_2023_010923__1_.pdf)
+também apresenta esses códigos e o vínculo entre benefício assistencial e seus
+subassuntos. A consulta on-line SGT retornou 403 nesta verificação; não afirmar
+que o snapshot local é a versão mais recente da tabela.
+
+`6117` — Renda Mensal Vitalícia aparece no catálogo e em
+[consulta pública TRF1](https://processual.trf1.jus.br/consultaProcessual/processo.php?proc=00000029220194019197&secao=TRF1).
+É candidato a estudo complementar, não substituto nem ampliação automática do
+recorte BPC. Assuntos amplos de revisões, renda inicial ou assistência misturam
+benefícios e pedidos fora do escopo. Os comandos continuam limitados aos três
+códigos originais; ampliar a amostra por período/tribunal requer explicitar a
+mudança de população, em vez de acrescentar códigos genéricos indiscriminadamente.
+
+### Decisão para o processamento atual
+
+Não declarar ausência de texto público: há portais de decisões e uma base STJ
+em formato aberto. Tampouco prometer acesso em lote a petições e sentenças do
+nosso recorte. Até testar/importar documentos com vínculo e origem, a triagem
+permanece DataJud + TPU, agora com resumo natural, e não identifica motivo da
+judicialização ou resultado individual. Ver contrato v1.2 em `CONTRATOS.md` e
+comando de lote em `SEM_DOCKER.md`.

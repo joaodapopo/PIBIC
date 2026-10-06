@@ -93,6 +93,29 @@ parser separa a evidência somente quando todos os componentes existem na
 entrada. Resultados v1.0 permanecem no banco; a nova versão pode triar novamente
 os mesmos processos. Não é necessário restaurar ou inicializar a base de novo.
 
+## Processar um lote com resumo em linguagem simples
+
+Atualize a instalação e execute um lote inicial de 10 processos:
+
+```powershell
+git pull
+.\.venv\Scripts\python.exe -m pip install --upgrade ./ingestion
+.\.venv\Scripts\python.exe -m bpc_ingestion ipeaia-triagem --limit 10 --executar --timeout 1200
+```
+
+O log deve mostrar `bpc_triagem_api_v1.2`. Essa versão envia a hierarquia TPU
+do banco e grava `resumo_caso` em linguagem simples junto das categorias e
+evidências em `extracoes_ia`. No painel, o resumo aparece antes do JSON completo.
+Se o catálogo TPU não estiver na cópia, a hierarquia fica vazia; não se inventam
+ancestrais. Não restaure a base de novo para atualizar o código.
+
+As chamadas são sequenciais. Pela duração observada de cerca de 6 minutos por
+processo, 10 podem levar aproximadamente uma hora; isso varia com fila e modelo.
+Pode usar até `--limit 50`. Repetir o comando seleciona pendentes do mesmo
+modelo e versão; versões anteriores são preservadas e podem ser retriadas.
+Cada sucesso é salvo imediatamente; erro interrompe o lote, mas mantém sucessos
+anteriores. Não repetir em loop um processo rejeitado sem avaliar o diagnóstico.
+
 ## Atualizar a cópia no futuro
 
 A origem PostgreSQL permanece na máquina local. O módulo

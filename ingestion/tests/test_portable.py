@@ -14,7 +14,7 @@ from bpc_ingestion.cli import ipeaia_triage
 from bpc_ingestion.config import Settings
 from bpc_ingestion.database import make_engine
 from bpc_ingestion.ipeaia import RejectedIpeaResponse, pending_processes, save_rejected_response
-from bpc_ingestion.models import Base, ExtracaoIa, Processo, RegistroDatajud
+from bpc_ingestion.models import Assunto, Base, ExtracaoIa, Processo, ReferenciaTpu, RegistroAssunto, RegistroDatajud
 from bpc_ingestion.portable import export_package, initialize
 
 
@@ -27,12 +27,20 @@ class PortableDatabaseTest(unittest.TestCase):
             process = Processo(numero_processo=number)
             session.add(process)
             session.flush()
-            session.add(RegistroDatajud(
+            record = RegistroDatajud(
                 processo_id=process.id, datajud_index="trf1", datajud_id="test",
                 tribunal="TRF1", grau="JE", nivel_sigilo=0,
                 payload={"orgaoJulgador": {"codigoMunicipioIBGE": 743}, "texto": "ação"},
                 cursor_sort=[], coletado_em=datetime.now(timezone.utc),
-            ))
+            )
+            session.add(record)
+            session.add(Assunto(codigo=11947, nome="Idoso"))
+            session.add_all([
+                ReferenciaTpu(tipo="assunto", codigo=6114, nome="Benefício Assistencial", fonte_arquivo="tpu.csv"),
+                ReferenciaTpu(tipo="assunto", codigo=11947, codigo_pai=6114, nome="Idoso", fonte_arquivo="tpu.csv"),
+            ])
+            session.flush()
+            session.add(RegistroAssunto(registro_id=record.id, assunto_codigo=11947))
             session.commit()
         try:
             with tempfile.TemporaryDirectory() as work:
@@ -81,6 +89,9 @@ class PortableDatabaseTest(unittest.TestCase):
                     with patch("bpc_ingestion.cli.IpeaIaClient") as client:
                         client.return_value.classify.return_value = {"desfecho": "indeterminado"}
                         ipeaia_triage(args, settings)
+                        sent = client.return_value.classify.call_args.args[1]
+                        hierarchy = sent["registros"][0]["assuntos"][0]["hierarquia_tpu"]
+                        self.assertEqual([item["codigo"] for item in hierarchy], [6114, 11947])
                     with Session(db) as session:
                         row = session.scalar(select(ExtracaoIa))
                         self.assertGreater(row.id, 0)

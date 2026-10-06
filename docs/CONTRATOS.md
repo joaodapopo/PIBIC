@@ -1,4 +1,4 @@
-# Contrato de dados BPC Jud — v0.4
+# Contrato de dados BPC Jud — v0.5
 
 Este documento substitui o contrato v0.1 baseado em SQLite/MongoDB.
 
@@ -112,7 +112,7 @@ selecionado; a coluna `vector` aceita armazenamento antes da criação de um ín
 específico por dimensão/modelo.
 
 O piloto IpeaIA usa `extracoes_ia.tipo_extracao = triagem_bpc`,
-`versao_prompt = bpc_triagem_api_v1.1`, `resultado` JSONB validado e
+`versao_prompt = bpc_triagem_api_v1.2`, `resultado` JSONB validado e
 `status_validacao = pendente`. O modelo vem de `IPEAIA_MODEL` ou `--model`.
 Envia apenas campos normalizados de registros públicos TRF1/G1/JE do órgão de
 Brasília: classe, órgão, assuntos e movimentos sem complementos, com indicação
@@ -129,7 +129,56 @@ fora do Git; não são classificações nem registros Bronze imutáveis. O proce
 continua pendente. Extrações anteriores v1.0 são preservadas; o prompt v1.1
 tem contrato explícito para evidências e não sobrescreve os resultados anteriores.
 Por usar outra versão, uma execução v1.1 pode selecionar novamente processos
-já triados na v1.0.
+já triados na v1.0. A versão atual v1.2 também preserva resultados v1.1.
+
+### Resumo natural e contexto TPU — v1.2 (06/10/2026)
+
+`resultado` acrescenta `resumo_caso`: texto obrigatório, não vazio, em português
+simples, com até 1500 caracteres. Explica fatos disponíveis, limitações e o que
+falta para entender a judicialização, sem inventar negativa administrativa ou
+resultado. Os demais campos, incluindo `observacao_curta` (até 300 caracteres),
+categorias, evidências e lacunas, são mantidos. O resumo é gerado pela IA e
+permanece pendente de revisão humana. É armazenado no mesmo JSON de
+`extracoes_ia`, em PostgreSQL ou SQLite; não há tabela nova nem migração.
+O painel mostra o resumo e mantém o JSON completo em uma área expansível;
+extrações antigas usam `observacao_curta` como alternativa, sem reescrita.
+
+A entrada acrescenta `assuntos[].hierarquia_tpu`, lista de objetos
+`{codigo, nome, fonte_arquivo}`, do ancestral ao assunto, consultada em
+`referencias_tpu` (`tipo=assunto`). Pais ausentes não são inventados; catálogo
+ausente produz lista vazia. Há proteção contra ciclos e limite de 20 níveis.
+Na TPU local, 11946 e 11947 descendem de 6114 (Benefício Assistencial), de modo
+que seu vínculo temático não deve ser avaliado pelo nome isolado. Isso não
+comprova concessão inicial ou motivo da ação. Fonte/contexto ainda é DataJud
+mais catálogo TPU; documentos de novas fontes não são enviados neste piloto.
+Pendências são selecionadas por modelo e versão; v1.2 pode repetir casos v1.1.
+
+### Decisão sobre conteúdo processual — pesquisa pública de 06/10/2026
+
+Foi confirmada pesquisa pública TRF1/JEF no
+[CJF](https://jurisprudencia.cjf.jus.br/trf1/index.xhtml), e o
+[TRF1](https://www.trf1.jus.br/trf1/carta-servicos/jurisprudencia) descreve consulta
+livre por texto, tipo de documento e fonte TRF1/JEF. O
+[arquivo TRF1](https://arquivo.trf1.jus.br/) oferece documentos publicados por
+número de processo, não autos completos. Não foi confirmada nesta rodada uma
+API pública documentada e viável para baixar em lote petições/sentenças do nosso
+recorte. A existência desses portais impede concluir que não há texto público,
+mas não demonstra cobertura dos 2.584 processos nem autoriza contornar anti-robô.
+
+O [STJ](https://dadosabertos.web.stj.jus.br/group/jurisprudencia) disponibiliza
+espelhos de acórdãos em CSV/JSON/ZIP, com catálogo CKAN testado sem credencial.
+É corpus complementar de jurisprudência, selecionado e de outra instância;
+não equivale à amostra de concessões iniciais TRF1/DF. Os
+[indeferimentos INSS](https://dadosabertos.inss.gov.br/dataset/beneficios-indeferidos-plano-de-dados-abertos-jun-2023-a-jun-2025)
+incluem motivos administrativos e ajudam a contextualizar, sem vínculo CNJ
+confirmado. Não atribuir esses motivos a um processo individual.
+
+Decisão atual: continuar a triagem de metadados com contexto TPU e resumo
+natural; priorizar um piloto separado de documentos públicos TRF1/JEF e avaliar
+STJ como corpus complementar. Nenhum novo coletor foi integrado nesta rodada.
+NLP/Métricas continuam sem base para estimar motivo da judicialização ou
+procedência individual apenas pelo DataJud; futura extração de textos exige
+contrato de origem, identificação, cobertura e revisão antes de uso analítico.
 
 O parser aceita JSON puro ou um único bloco Markdown JSON, sem texto externo.
 Caminhos de evidência como `classe.nome`, `assuntos[0].nome` e
@@ -168,6 +217,7 @@ resposta é rejeitada com diagnóstico para não registrar atribuição incorret
 
 | Data | Decisão | Consequência |
 | --- | --- | --- |
+| 06/10/2026 | Prompt v1.2: resumo natural no JSON de extração e hierarquia TPU na entrada; pesquisar fontes públicas adicionais sem misturar populações. | `resumo_caso` até 1500 caracteres, sem novas tabelas; resultados anteriores preservados. CJF/TRF1 e STJ são fontes candidatas de textos, mas nenhuma coleta de documentos foi integrada. Motivo e desfecho continuam não determináveis só por metadados. |
 | 06/10/2026 | Versionar prompt de triagem em v1.1, explicitar formato e permitir evidências de `tribunal`/`grau`; desmembrar campos compostos válidos separados por `/`. | Resolve incompatibilidade `tribunal / grau` sem inventar vínculos nem descartar evidências. Metadados já enviados; enum de `campo` ampliado neste contrato. Resultados v1.0 preservados e passíveis de nova triagem v1.1. |
 | 05/10/2026 | Aceitar bloco Markdown JSON e normalizar caminhos de evidências existentes; rejeitar divergência de modelo informada pela API. | Corrige incompatibilidade de formato observada no GLM sem aceitar caminhos inexistentes nem mudar o schema; preserva rastreabilidade do caminho em `referencia`. |
 | 05/10/2026 | Detalhar falhas de evidências e conservar respostas IpeaIA rejeitadas em diagnóstico local sem token. | Não aceitar IDs externos à entrada nem formatos inválidos; nenhuma extração gravada para o processo rejeitado e nenhuma repetição automática. Sem alteração do schema ou da metodologia. |

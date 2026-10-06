@@ -183,7 +183,10 @@
       data.extracoes_ia.forEach(item => {
         const card = add(extractionSection, 'article', null, 'entry'); add(card, 'h3', `${item.tipo_extracao} · ${item.status_validacao}`);
         add(card, 'p', `Modelo ${item.modelo} · prompt ${item.versao_prompt} · confiança ${item.confianca ?? 'não informada'} · ${when(item.criado_em)}`, 'muted');
-        add(card, 'pre', JSON.stringify(item.resultado, null, 2));
+        const summary = item.resultado?.resumo_caso || item.resultado?.observacao_curta;
+        if (summary) { add(card, 'h4', 'Resumo do caso'); add(card, 'div', summary, 'text'); }
+        const technical = add(card, 'details'); add(technical, 'summary', 'Ver classificação, evidências e lacunas');
+        add(technical, 'pre', JSON.stringify(item.resultado, null, 2));
       });
       const chunks = add(root, 'section', null, 'section'); add(chunks, 'h3', `Trechos preparados para IA (${data.documento_chunks.length})`);
       if (!data.documento_chunks.length) empty(chunks, 'Nenhum trecho de publicação processado.');
