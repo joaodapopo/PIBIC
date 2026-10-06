@@ -75,7 +75,8 @@ def result_link(value: str) -> str:
 def page_state(body: bytes, expected_page: int) -> tuple[int, int, list[str]]:
     soup = BeautifulSoup(body, "html.parser")
     # No vazio real, o portal omite value nos totais, mas exibe título explícito.
-    headers = soup.select("#divResultados h2")
+    headers = [h for h in soup.select("#divResultados h2")
+               if re.fullmatch(r"\d+ documentos encontrados", h.get_text(" ", strip=True))]
     total_tags = soup.find_all("input", id="hdnTotalResultado")
     pages_tags = soup.find_all("input", id="hdnTotalPaginas")
     current_tags = soup.find_all("input", id="hdnPaginaAtual")

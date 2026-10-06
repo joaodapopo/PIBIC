@@ -103,9 +103,9 @@ class TnuSearchTest(unittest.TestCase):
         self.assertEqual(observed, [HOME_HTML, b'<html>error</html>'])
 
     def test_observed_zero_result_has_omitted_numeric_values(self):
-        empty = b'''<div id="divResultados"><h2>0 documentos encontrados</h2>
+        empty = '''<div id="divResultados"><h2>0 documentos encontrados</h2>
         <input id="hdnTotalResultado"><input id="hdnTotalPaginas">
-        <input id="hdnPaginaAtual" value="1"></div>'''
+        <input id="hdnPaginaAtual" value="1"><h2>Citação</h2></div>'''.encode()
         self.assertEqual(page_state(empty, 1), (0, 0, []))
         with self.assertRaises(ValueError):
             page_state(empty.replace(b'0 documentos encontrados', b'erro'), 1)
